@@ -132,7 +132,7 @@ jobs:
         env:
           ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
         run: |
-          PACKAGE_PATH=$(find dist/conda -name "*.tar.bz2" | head -n 1)
+          PACKAGE_PATH=$(find dist/conda -name "*.tar.bz2" -o -name "*.conda" | head -n 1)
           if [ -z "$PACKAGE_PATH" ]; then
             echo "Error: No package found!"
             exit 1
