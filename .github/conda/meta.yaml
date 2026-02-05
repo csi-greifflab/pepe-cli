@@ -18,7 +18,7 @@ requirements:
     - wheel
   run:
     - python >=3.8
-    - torch >=1.9.0
+    - pytorch >=1.9.0
     - transformers >=4.20.0
     - sentencepiece
     - numpy
