@@ -12,6 +12,8 @@ jobs:
     permissions:
       id-token: write  # Required for trusted publishing
       contents: read
+    outputs:
+      test_version: ${{ steps.version_step.outputs.test_version }}
     
     steps:
     - uses: actions/checkout@v4
@@ -27,6 +29,7 @@ jobs:
         pip install build
     
     - name: Update version for test branch
+      id: version_step
       run: |
         # Get current timestamp for unique version
         TIMESTAMP=$(date +%Y%m%d%H%M%S)
@@ -36,6 +39,10 @@ jobs:
         MODULE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __module_name__; print(__module_name__)")
         # Create test version by replacing -dev with .dev and adding timestamp
         TEST_VERSION=$(echo $CURRENT_VERSION | sed -E "s/(-dev|\.dev[0-9]*)$/.dev${TIMESTAMP}/")
+        
+        # Output version for other jobs
+        echo "test_version=$TEST_VERSION" >> $GITHUB_OUTPUT
+        
         # Update version in __init__.py
         sed -i "s/__version__ = \"$CURRENT_VERSION\"/__version__ = \"$TEST_VERSION\"/" src/pepe/__init__.py
         echo "Updated version from $CURRENT_VERSION to $TEST_VERSION"
@@ -124,6 +131,8 @@ jobs:
 
       - name: Build Conda Package
         shell: bash -l {0}
+        env:
+          GIT_DESCRIBE_TAG: ${{ needs.build-and-publish-test.outputs.test_version }}
         run: |
           conda build .github/conda --output-folder dist/conda
 
