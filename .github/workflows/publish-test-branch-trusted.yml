@@ -103,3 +103,39 @@ jobs:
         rm -rf test_env
         
         echo "✅ Package verification completed successfully!"
+
+  publish-conda-test:
+    runs-on: ubuntu-latest
+    needs: build-and-publish-test
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: 3.10
+          channels: defaults,conda-forge,bioconda
+
+      - name: Install build tools
+        shell: bash -l {0}
+        run: |
+          conda install -y conda-build anaconda-client
+
+      - name: Build Conda Package
+        shell: bash -l {0}
+        run: |
+          conda build .github/conda --output-folder dist/conda
+
+      - name: Upload to Anaconda (Test Label)
+        shell: bash -l {0}
+        env:
+          ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          PACKAGE_PATH=$(find dist/conda -name "*.tar.bz2" | head -n 1)
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "Error: No package found!"
+            exit 1
+          fi
+          echo "Found package: $PACKAGE_PATH"
+          anaconda upload --token $ANACONDA_TOKEN --label test $PACKAGE_PATH

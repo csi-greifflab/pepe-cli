@@ -21,6 +21,111 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     pepe --experiment_name <optional_string> --fasta_path <file_path> --output_path <directory> --model_name <model_name>
     ```
 
+## Quick start with Library
+
+PEPE can also be used as a Python library. This allows for programmatic access to protein embeddings without using the command-line interface.
+
+1. Install PEPE (see [Quick start with CLI](#quick-start-with-cli) for details).
+2. Use the `pepe.embed()` function in your script:
+
+```python
+import pepe
+
+# Example: Embed sequences from a dictionary
+sequences = {
+    "prot1": "MADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK",
+    "prot2": "MERIKELRDLMSQSRTREILTKLAEAGIDVPRLFK"
+}
+
+results = pepe.embed(
+    model_name="facebook/esm2_t6_8M_UR50D",
+    sequences=sequences,
+    output_path="my_embeddings",
+    extract_embeddings=["mean_pooled"],
+    device="cpu"  # Use "cuda" if available
+)
+
+# Or from a FASTA file
+pepe.embed(
+    model_name="facebook/esm2_t6_8M_UR50D",
+    fasta_path="path/to/fasta",
+    output_path="my_embeddings",
+    extract_embeddings=["mean_pooled"],
+    device="cpu"  # Use "cuda" if available
+)
+```
+
+### Advanced Usage
+
+For more control, you can use the embedder classes directly:
+
+```python
+from pepe.model_selecter import select_model
+
+# Select the appropriate model class
+# This acts as a factory returning the correct subclass (ESMEmbedder, HuggingfaceEmbedder, etc.)
+ModelClass = select_model("esm2_t6_8M_UR50D")
+
+# Initialize the embedder
+embedder = ModelClass(
+    model_name="facebook/esm2_t6_8M_UR50D",
+    fasta_path="path/to/sequences.fasta",
+    output_path="output_directory",
+    extract_embeddings=["mean_pooled", "attention_head"],
+    layers=[[-1], [6]]  # Layers are expected as a list of lists of ints
+)
+
+# Run the embedding pipeline
+embedder.run()
+```
+
+### Memory Management & Large Scale Processing
+
+PEPE is designed to handle protein datasets of any size by utilizing **streamed outputs** and **memory mapping**. This feature is enabled by default (`streaming_output=True`).
+
+- **CLI Usage**: No action needed. PEPE automatically streams batches to disk to avoid OOM errors.
+- **Library Usage**: When using `pepe.embed()` or the embedder classes, the returned object does **not** hold the full embeddings in RAM. Instead, it provides `numpy.memmap` handles to the data on disk.
+
+```python
+import pepe
+
+# Returns an embedder object
+results = pepe.embed(
+    model_name="facebook/esm2_t6_8M_UR50D",
+    sequences=sequences,
+    output_path="large_dataset_output"
+    # streaming_output=True  <-- Default
+)
+
+# The embeddings are NOT loaded into RAM here.
+# 'data' is a numpy.memmap object pointing to the file on disk.
+data = results.mean_pooled["output_data"][-1] 
+
+# You can slice it like a normal array, which only loads those specific rows into RAM
+first_100_embeddings = data[:100]
+
+# Optimizing RAM usage:
+# If you are done with the model but want to keep working with the data,
+# you can delete the embedder object to free up GPU/CPU memory while keeping the memmaps.
+del results 
+```
+
+#### Performance Optimization
+
+If you have sufficient RAM to hold the entire dataset in memory, you can disable streaming output for faster execution. This avoids the overhead of writing to disk during the embedding process.
+
+```python
+results = pepe.embed(
+    model_name="facebook/esm2_t6_8M_UR50D",
+    sequences=sequences,
+    output_path="output",
+    streaming_output=False  # Store everything in valid RAM for speed
+)
+
+# Now 'results.mean_pooled["output_data"]' is a standard Numpy object
+# accessible immediately in memory.
+```
+
 ## List of supported models:
 - ESM-family models
     - ESM1:

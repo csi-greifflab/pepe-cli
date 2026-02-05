@@ -36,7 +36,7 @@ if not os.path.exists(args.output_path):
 
 embedder = select_model(args.model_name)
 
-embedder = embedder(args)
+embedder = embedder(**vars(args))
 print("Embedder initialized")
 
 embedder.run()

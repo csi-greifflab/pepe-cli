@@ -5,5 +5,4 @@ fair-esm
 sentencepiece
 numpy
 protobuf
-rjieba
 alive_progress
