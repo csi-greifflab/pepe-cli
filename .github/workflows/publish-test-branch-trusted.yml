@@ -35,7 +35,7 @@ jobs:
         PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
         MODULE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __module_name__; print(__module_name__)")
         # Create test version by replacing -dev with .dev and adding timestamp
-        TEST_VERSION=$(echo $CURRENT_VERSION | sed "s/-dev/.dev${TIMESTAMP}/")
+        TEST_VERSION=$(echo $CURRENT_VERSION | sed -E "s/(-dev|\.dev[0-9]*)$/.dev${TIMESTAMP}/")
         # Update version in __init__.py
         sed -i "s/__version__ = \"$CURRENT_VERSION\"/__version__ = \"$TEST_VERSION\"/" src/pepe/__init__.py
         echo "Updated version from $CURRENT_VERSION to $TEST_VERSION"
