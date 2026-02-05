@@ -210,4 +210,4 @@ jobs:
             exit 1
           fi
           echo "Found package: $PACKAGE_PATH"
-          anaconda upload --token $ANACONDA_TOKEN --label main $PACKAGE_PATH
+          anaconda -t $ANACONDA_TOKEN upload --label main $PACKAGE_PATH
