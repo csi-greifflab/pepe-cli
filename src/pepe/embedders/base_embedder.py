@@ -106,7 +106,6 @@ class BaseEmbedder:
 
     def _set_output_objects(self):
         """Initialize output objects."""
-        self._check_max_input_length()
         self.sequence_labels = []
         self.logits = {
             "output_data": {layer: [] for layer in self.layers},  # type: ignore
