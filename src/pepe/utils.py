@@ -424,8 +424,10 @@ class CustomDataset(SequenceDictDataset):
         else:
             return labels, seqs, toks, attn_mask
 
-def check_input_tokens(valid_tokens, sequences, model_name, bracket_type = "square"):
-    def __str_to_list(sequence, bracket_type = "square"):
+def check_input_tokens(
+    valid_tokens, sequences, model_name, bracket_type="square", split_long_sequences=False
+):
+    def __str_to_list(sequence, bracket_type="square"):
         if bracket_type == "square":
             return re.findall(r"\[.*?\]|.", sequence)
         elif bracket_type == "angle":
@@ -438,10 +440,10 @@ def check_input_tokens(valid_tokens, sequences, model_name, bracket_type = "squa
     ) as bar:
         for label, sequence in sequences.items():
             sequence = __str_to_list(sequence, bracket_type)
-            if "antiberta" in model_name:  # check for longest sequence
+            if "antiberta" in model_name and not split_long_sequences:  # check for longest sequence
                 assert (
                     len(sequence) <= 256
-                ), f"Antiberta2 does not support sequences longer than 256 tokens. Found {len(sequence)} tokens in sequence {label}."
+                ), f"Antiberta2 does not support sequences longer than 256 tokens. Found {len(sequence)} tokens in sequence {label}. Use --split_long_sequences to process longer sequences."
 
             if not set(sequence).issubset(valid_tokens):
                 raise ValueError(

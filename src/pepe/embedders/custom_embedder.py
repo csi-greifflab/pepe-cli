@@ -53,8 +53,12 @@ class CustomEmbedder(BaseEmbedder):
 
         # Set up tokenizer and validate tokens
         self.valid_tokens = self._get_valid_tokens()
+        self._check_max_input_length()
         pepe.utils.check_input_tokens(
-            self.valid_tokens, self.sequences, self.model_name, 
+            self.valid_tokens,
+            self.sequences,
+            self.model_name,
+            split_long_sequences=self.split_long_sequences,
         )
 
         # Set up special tokens
@@ -64,7 +68,7 @@ class CustomEmbedder(BaseEmbedder):
         self.layers = self._load_layers(self.layers)
 
         # Load and tokenize data
-        self.data_loader, self.max_length = self._load_data(
+        self.data_loader, self.max_input_length = self._load_data(
             self.sequences, self.substring_dict
         )
 

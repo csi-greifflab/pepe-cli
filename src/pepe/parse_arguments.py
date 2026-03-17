@@ -110,9 +110,21 @@ def parse_arguments():
         help="Discard padding tokens from per_token embeddings output. Not compatible with --streaming_output Default is False.",
     )
     parser.add_argument(
-        "--max_length",
-        default="max_length",
-        help="Length to which sequences will be padded. Default is longest sequence.",
+        "--max_input_length",
+        type=str,
+        default="max_input_length",
+        help="Length to which sequences will be padded. Default is length of longest sequence in input file. If shorter than longest sequence, will forcefully default to length of longest sequence.",
+    )
+    parser.add_argument(
+        "--split_long_sequences",
+        action="store_true",
+        help="If a sequence exceeds the maximum permitted length for the chosen model, split it into smaller overlapping chunks and concatenate the output representations.",
+    )
+    parser.add_argument(
+        "--split_overlap",
+        type=int,
+        default=0,
+        help="Number of tokens to overlap when splitting long sequences. Default is 0.",
     )
     parser.add_argument(
         "--streaming_output",

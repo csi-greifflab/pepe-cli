@@ -53,7 +53,12 @@ class BaseEmbedder:
             self._load_substrings(args.substring_path) if args.substring_path else None
         )
         self.batch_size = args.batch_size
-        self.max_length = args.max_length
+        self.max_input_length = args.max_input_length
+        self.split_long_sequences = getattr(args, "split_long_sequences", False)
+        self.split_overlap = getattr(args, "split_overlap", 0)
+        self.chunks_mapping = {}  # Map original label to list of chunk labels
+        self.chunk_payload_lengths = {} # Map chunk label to its payload length
+        self.original_sequences = {} # Store original sequence for reference
         if torch.cuda.is_available() and args.device == "cuda":
             self.device = torch.device("cuda")
         else:
@@ -101,6 +106,7 @@ class BaseEmbedder:
 
     def _set_output_objects(self):
         """Initialize output objects."""
+        self._check_max_input_length()
         self.sequence_labels = []
         self.logits = {
             "output_data": {layer: [] for layer in self.layers},  # type: ignore
@@ -108,7 +114,7 @@ class BaseEmbedder:
             "output_dir": os.path.join(self.output_path, "logits"),
             "shape": (
                 self.num_sequences,  # type: ignore
-                self.max_length,
+                self.max_input_length,
             ),
         }
         self.mean_pooled = {
@@ -124,13 +130,13 @@ class BaseEmbedder:
             "shape": (
                 (
                     self.num_sequences,  # type: ignore
-                    self.max_length,
+                    self.max_input_length,
                     self.embedding_size,  # type: ignore
                 )
                 if not self.flatten
                 else (
                     self.num_sequences,  # type: ignore
-                    self.max_length * self.embedding_size,  # type: ignore
+                    self.max_input_length * self.embedding_size,  # type: ignore
                 )
             ),
         }
@@ -150,13 +156,13 @@ class BaseEmbedder:
             "shape": (
                 (
                     self.num_sequences,  # type: ignore
-                    self.max_length,
-                    self.max_length,
+                    self.max_input_length,
+                    self.max_input_length,
                 )
                 if not self.flatten
                 else (
                     self.num_sequences,  # type: ignore
-                    self.max_length**2,
+                    self.max_input_length**2,
                 )
             ),
         }
@@ -167,13 +173,13 @@ class BaseEmbedder:
             "shape": (
                 (
                     self.num_sequences,  # type: ignore
-                    self.max_length,
-                    self.max_length,
+                    self.max_input_length,
+                    self.max_input_length,
                 )
                 if not self.flatten
                 else (
                     self.num_sequences,  # type: ignore
-                    self.max_length**2,
+                    self.max_input_length**2,
                 )
             ),
         }
@@ -184,13 +190,13 @@ class BaseEmbedder:
             "shape": (
                 (
                     self.num_sequences,  # type: ignore
-                    self.max_length,
-                    self.max_length,
+                    self.max_input_length,
+                    self.max_input_length,
                 )
                 if not self.flatten
                 else (
                     self.num_sequences,  # type: ignore
-                    self.max_length**2,
+                    self.max_input_length**2,
                 )
             ),
         }
@@ -397,6 +403,9 @@ class BaseEmbedder:
 
                 self.sequence_labels.extend(labels)
                 bar(len(toks))
+
+            if self.split_long_sequences and self.chunks_mapping:
+                self._reconstruct_chunks()
 
             if self.streaming_output:
                 self.io_dispatcher.stop()
@@ -795,3 +804,191 @@ class BaseEmbedder:
             self._cleanup_checkpoint()
 
         logger.info("Pipeline completed successfully!")
+    def _check_max_input_length(self):
+        """Check if max_input_length exceeds the model's allowed maximum length and handle splitting."""
+        max_allowed = self._get_model_max_allowed()
+        if max_allowed is None:
+            return
+
+        # Check if splitting is needed (either by explicit max_input_length or by reviewing sequences)
+        needs_splitting = False
+        if isinstance(self.max_input_length, int) and self.max_input_length > max_allowed:
+            needs_splitting = True
+        elif self.split_long_sequences:
+            # Check if any individual sequence exceeds the limit
+            if any(len(s) > (max_allowed - 2) for s in self.sequences.values()): # -2 for cls/eos
+                needs_splitting = True
+
+        if needs_splitting:
+            if self.split_long_sequences:
+                logger.info(
+                    f"Splitting sequences because they exceed model limit ({max_allowed})."
+                )
+                self._handle_sequence_splitting(max_allowed)
+            else:
+                logger.warning(
+                    f"Warning: Sequences exceed the model's maximum allowed length ({max_allowed})."
+                )
+
+    def _get_model_max_allowed(self):
+        """Estimate the maximum allowed sequence length for the model."""
+        max_allowed = None
+        if hasattr(self, "model"):
+            if hasattr(self.model, "config") and hasattr(self.model.config, "max_position_embeddings"):
+                max_allowed = self.model.config.max_position_embeddings
+            elif hasattr(self, "tokenizer") and hasattr(self.tokenizer, "model_max_length"):
+                max_allowed = self.tokenizer.model_max_length
+            
+            if max_allowed is None and hasattr(self.model, "max_positions"):
+                max_allowed = getattr(self.model, "max_positions", None)
+                if callable(max_allowed):
+                    max_allowed = max_allowed()
+                elif hasattr(self.model, "max_positions") and isinstance(self.model.max_positions, int):
+                    max_allowed = self.model.max_positions
+                    
+            if max_allowed is None and hasattr(self.model, "config") and hasattr(self.model.config, "n_positions"):
+                max_allowed = self.model.config.n_positions
+        return max_allowed
+
+    def _handle_sequence_splitting(self, max_allowed):
+        """Split sequences that exceed max_allowed into chunks."""
+        new_sequences = {}
+        self.chunks_mapping = {}
+        special_tokens_count = 2 # cls + eos (conservative default)
+        chunk_size = max_allowed - special_tokens_count
+        overlap = self.split_overlap
+
+        if chunk_size <= overlap:
+            logger.error(f"chunk_size ({chunk_size}) must be greater than overlap ({overlap}). Disabling splitting.")
+            return
+
+        for label, sequence in self.sequences.items():
+            if len(sequence) <= chunk_size:
+                new_sequences[label] = sequence
+                continue
+
+            self.original_sequences[label] = sequence
+            chunks = []
+            start = 0
+            chunk_idx = 0
+            while start < len(sequence):
+                end = min(start + chunk_size, len(sequence))
+                chunk_payload = sequence[start:end]
+                chunk_label = f"{label}_chunk_{chunk_idx}"
+                
+                new_sequences[chunk_label] = chunk_payload
+                self.chunk_payload_lengths[chunk_label] = len(chunk_payload)
+                chunks.append(chunk_label)
+                
+                if end == len(sequence):
+                    break
+                start = end - overlap
+                chunk_idx += 1
+            
+            self.chunks_mapping[label] = chunks
+        
+        self.sequences = new_sequences
+        # Update num_sequences
+        if hasattr(self, 'num_sequences'):
+            self.num_sequences = len(self.sequences)
+        
+        # Update max_input_length to chunk size
+        self.max_input_length = chunk_size
+
+    def _reconstruct_chunks(self):
+        """Reconstruct original sequences from chunks in memory."""
+        if not self.chunks_mapping or self.streaming_output:
+            return
+
+        logger.info("Reconstructing original sequences from chunks...")
+        
+        label_to_idx = {label: i for i, label in enumerate(self.sequence_labels)}
+        
+        # For each output type, we need to rebuild the data
+        outputs_to_rebuild = []
+        rebuild_logits = self.return_logits and hasattr(self, "logits")
+        rebuild_per_token = self.return_embeddings and hasattr(self, "per_token")
+        rebuild_mean_pooled = self.return_embeddings and hasattr(self, "mean_pooled")
+        
+        if rebuild_logits: outputs_to_rebuild.append(self.logits)
+        if rebuild_per_token: outputs_to_rebuild.append(self.per_token)
+        if rebuild_mean_pooled: outputs_to_rebuild.append(self.mean_pooled)
+        
+        # Map original labels to their new index in the final list
+        new_sequence_labels = []
+        labels_processed = set()
+        
+        # Temporary storage for reconstructed results
+        reconstructed_data = {id(obj): {layer: [] for layer in self.layers} for obj in outputs_to_rebuild}
+
+        for label in self.sequence_labels:
+            # Find the original label
+            orig_label = label
+            is_chunk = False
+            for parent, chunks in self.chunks_mapping.items():
+                if label in chunks:
+                    orig_label = parent
+                    is_chunk = True
+                    break
+            
+            if orig_label in labels_processed:
+                continue
+            
+            labels_processed.add(orig_label)
+            new_sequence_labels.append(orig_label)
+            
+            if not is_chunk:
+                # Just copy the existing data
+                idx = label_to_idx[label]
+                for obj in outputs_to_rebuild:
+                    for layer in self.layers:
+                        reconstructed_data[id(obj)][layer].append(obj["output_data"][layer][idx])
+                continue
+            
+            # Reconstruct from chunks
+            chunk_labels = self.chunks_mapping[orig_label]
+            
+            # 1. Concatenate per-token and logits
+            if rebuild_per_token or rebuild_logits:
+                for obj, flag in [(self.per_token, rebuild_per_token), (self.logits, rebuild_logits)]:
+                    if flag:
+                        for layer in self.layers:
+                            parts = []
+                            for i, cl in enumerate(chunk_labels):
+                                idx = label_to_idx[cl]
+                                full_tensor = obj["output_data"][layer][idx]
+                                payload_len = self.chunk_payload_lengths[cl]
+                                
+                                # Identify indices for extraction
+                                start_idx = 1
+                                if i > 0:
+                                    start_idx += self.split_overlap
+                                
+                                end_idx = 1 + payload_len
+                                meat = full_tensor[start_idx:end_idx]
+                                
+                                if i == 0:
+                                    meat = torch.cat([full_tensor[0:1], meat], dim=0)
+                                if i == len(chunk_labels) - 1:
+                                    meat = torch.cat([meat, full_tensor[1 + payload_len : 2 + payload_len]], dim=0)
+
+                                parts.append(meat)
+
+                            reconstructed = torch.cat(parts, dim=0)
+                            reconstructed_data[id(obj)][layer].append(reconstructed)
+
+            # 2. Handle Mean Pooled
+            if rebuild_mean_pooled:
+                for layer in self.layers:
+                    full_per_token = reconstructed_data[id(self.per_token)][layer][-1]
+                    reconstructed_mean = full_per_token.mean(0)
+                    reconstructed_data[id(self.mean_pooled)][layer].append(reconstructed_mean)
+
+        # Replace original data with reconstructed data
+        self.sequence_labels = new_sequence_labels
+        self.num_sequences = len(self.sequence_labels)
+        for obj in outputs_to_rebuild:
+            for layer in self.layers:
+                obj["output_data"][layer] = reconstructed_data[id(obj)][layer]
+        
+        logger.info(f"Reconstruction complete. Final sequence count: {self.num_sequences}")
