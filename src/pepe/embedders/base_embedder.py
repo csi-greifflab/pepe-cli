@@ -56,6 +56,7 @@ class BaseEmbedder:
         self.max_input_length = args.max_input_length
         self.split_long_sequences = getattr(args, "split_long_sequences", False)
         self.split_overlap = getattr(args, "split_overlap", 0)
+        self.force_split_length = getattr(args, "force_split_length", None)
         self.chunks_mapping = {}  # Map original label to list of chunk labels
         self.chunk_payload_lengths = {} # Map chunk label to its payload length
         self.original_sequences = {} # Store original sequence for reference
@@ -831,6 +832,9 @@ class BaseEmbedder:
 
     def _get_model_max_allowed(self):
         """Estimate the maximum allowed sequence length for the model."""
+        if hasattr(self, "force_split_length") and self.force_split_length is not None:
+            return self.force_split_length
+
         max_allowed = None
         if hasattr(self, "model"):
             if hasattr(self.model, "config") and hasattr(self.model.config, "max_position_embeddings"):
@@ -965,11 +969,21 @@ class BaseEmbedder:
                                 
                                 end_idx = 1 + payload_len
                                 meat = full_tensor[start_idx:end_idx]
+
                                 
                                 if i == 0:
                                     meat = torch.cat([full_tensor[0:1], meat], dim=0)
+
                                 if i == len(chunk_labels) - 1:
-                                    meat = torch.cat([meat, full_tensor[1 + payload_len : 2 + payload_len]], dim=0)
+                                    expected_unpadded_len = 1 + payload_len
+                                    # Safe bet: if there's no EOS, it's either padding or out of bounds. 
+                                    # To be robust during reconstruction of standard models, we should append if `add_special_tokens` was True and the tokenizer adds EOS.
+                                    # The simplest heuristic: the original tokenizer encoded "" into >1 token or it has an EOS token
+                                    eos_count = len(self.tokenizer.encode("", add_special_tokens=True)) - 1 if hasattr(self, "tokenizer") and hasattr(self.tokenizer, "encode") else 0
+                                    
+                                    if eos_count > 0:
+                                        appended = full_tensor[expected_unpadded_len : expected_unpadded_len + 1]
+                                        meat = torch.cat([meat, appended], dim=0)
 
                                 parts.append(meat)
 

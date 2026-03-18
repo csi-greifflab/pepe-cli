@@ -127,6 +127,12 @@ def parse_arguments():
         help="Number of tokens to overlap when splitting long sequences. Default is 0.",
     )
     parser.add_argument(
+        "--force_split_length",
+        type=int,
+        default=None,
+        help="Optional limit to force sequence chunking at a specific length, overriding auto-detected model limits.",
+    )
+    parser.add_argument(
         "--streaming_output",
         type=str2bool,
         choices=[True, False],

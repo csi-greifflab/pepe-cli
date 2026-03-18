@@ -159,12 +159,16 @@ class HuggingFaceDataset(SequenceDictDataset):
             # For other tokenizers, use the default tokenization
             max_token_length = max(len(seq) for seq in strs)
 
+        # Account for special tokens (if any)
+        special_tokens_count = len(tokenizer.encode("", add_special_tokens=add_special_tokens)) if hasattr(tokenizer, "encode") else 0
+        max_token_length += special_tokens_count
+
         if max_length == "max_length":
             max_length = max_token_length
-            logger.info(f"Setting max_length to {max_length}.")
+            logger.info(f"Setting max_length to {max_length} (including {special_tokens_count} special tokens).")
         elif isinstance(max_length, int) and max_length < max_token_length:
             logger.warning(
-                f"max_length {max_length} is less than the length of the longest sequence: {max_token_length}. Setting max_length to {max_token_length}."
+                f"max_length {max_length} is less than the length of the longest sequence + special tokens ({max_token_length}). Setting max_length to {max_token_length}."
             )
             max_length = max_token_length
         loop_input_ids = []
