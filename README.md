@@ -110,6 +110,30 @@ first_100_embeddings = data[:100]
 del results 
 ```
 
+### Handling Long Sequences (Splitting & Reconstruction)
+
+Some models have strict architectural limits on input length (e.g., 1024 for ESM-2, 256 for AntiBERTa2). PEPE can automatically detect sequences that exceed these limits and handle them through chunking and reconstruction.
+
+- **Automatic Detection**: When `--split_long_sequences` is enabled, PEPE automatically identifies sequences exceeding the model's capacity.
+- **Overlapping Chunks**: Use `--split_overlap` to maintain context between chunks. 
+- **Reconstruction**: 
+    - In **Library mode**, sequences are reconstructed in memory automatically after `embed()`.
+    - In **CLI mode**, sequences are reconstructed if `streaming_output=False`. If `streaming_output=True`, chunks are exported individually to maximize efficiency and minimize RAM usage.
+
+```python
+# Library Example: Process a 2000 AA protein with ESM-2 (1024 limit)
+results = pepe.embed(
+    model_name="facebook/esm2_t33_650M_UR50D",
+    sequences={"long_prot": "M" * 2000},
+    split_long_sequences=True,
+    split_overlap=50
+)
+
+# 'results.per_token' will contain a single reconstructed tensor of length ~2002
+# (including special tokens) despite the model's 1024 limit.
+```
+
+
 #### Performance Optimization
 
 If you have sufficient RAM to hold the entire dataset in memory, you can disable streaming output for faster execution. This avoids the overhead of writing to disk during the embedding process.
@@ -188,7 +212,11 @@ results = pepe.embed(
 ### Processing Configuration
 - **`--batch_size`** (int, optional): Batch size for loading sequences. Default is `1024`. Decrease if encountering out-of-memory errors.
 - **`--max_length`** (int, optional): Length to which sequences will be padded. Default is length of longest sequence in input file. If shorter than longest sequence, will forcefully default to length of longest sequence.
+- **`--split_long_sequences`** (bool, optional): When True, automatically detect sequences exceeding the model's maximum allowed length and split them into chunks for processing. Default is `False`.
+- **`--split_overlap`** (int, optional): Number of tokens to overlap when splitting long sequences. This helps maintain context across chunk boundaries. Default is `0`.
+- **`--force_split_length`** (int, optional): Explicitly force sequence splitting at a specific length, overriding the model's auto-detected limits. Default is `None`.
 - **`--discard_padding`** (bool, optional): Discard padding tokens from per_token embeddings output. Default is `False`.
+
 
 ### Output Configuration
 - **`--experiment_name`** (str, optional): Prefix for names of output files. If not provided, name of input file will be used for prefix.

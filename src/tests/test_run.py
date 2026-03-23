@@ -28,16 +28,18 @@ sys.argv = [
     "cpu",
 ]
 
-args = parse_arguments()
+if __name__ == "__main__":
+    args = parse_arguments()
 
-# Check if output directory exists and creates it if it's missing
-if not os.path.exists(args.output_path):
-    os.makedirs(args.output_path)
+    # Check if output directory exists and creates it if it's missing
+    if not os.path.exists(args.output_path):
+        os.makedirs(args.output_path)
 
-embedder = select_model(args.model_name)
+    embedder = select_model(args.model_name)
 
-embedder = embedder(**vars(args))
-print("Embedder initialized")
+    embedder = embedder(**vars(args))
+    print("Embedder initialized")
 
-embedder.run()
-print("All outputs saved.")
+    embedder.run()
+    print("All outputs saved.")
+
