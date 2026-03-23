@@ -9,6 +9,10 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     ```sh
     pip install pepe-cli
     ```
+    From Conda:
+    ```sh
+    conda install -c <your-channel> pepe-cli
+    ```
     Or install from the GitHub repository:    
     ```sh
     git clone https://github.com/csi-greifflab/pepe-cli
