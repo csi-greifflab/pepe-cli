@@ -24,7 +24,7 @@ class TokenBudgetBatchSampler:
         sample_seq_len = len(
             dataset[0][2]
         )  # dataset[idx] -> (label, seq_str, toks, mask)
-        self.batch_size = token_budget // sample_seq_len
+        self.batch_size = max(1, token_budget // sample_seq_len)
 
         self.batches = self._create_batches()
 
@@ -486,16 +486,36 @@ def fasta_to_dict(fasta_path):
 
     return seq_dict
 def get_bracket_type(tokenizer):
+    """
+    Attempt to determine if special tokens use [ ] or < > brackets.
+    Defaults to 'square' with a warning if unable to determine.
+    """
     try:
-        special_token_bracket = tokenizer.special_tokens_map["additional_special_tokens"][0][0]
-    except KeyError:
-        special_token_bracket = tokenizer.all_special_tokens[0][0]
-    if special_token_bracket == "<":
-        return "angle"
-    elif special_token_bracket == "[":
+        special_tokens = []
+        if hasattr(tokenizer, "special_tokens_map") and "additional_special_tokens" in tokenizer.special_tokens_map:
+            tokens = tokenizer.special_tokens_map["additional_special_tokens"]
+            if tokens and len(tokens) > 0:
+                special_tokens.append(tokens[0])
+        
+        if not special_tokens and hasattr(tokenizer, "all_special_tokens"):
+            if tokenizer.all_special_tokens:
+                special_tokens.append(tokenizer.all_special_tokens[0])
+        
+        if not special_tokens:
+            logger.warning("Could not find any special tokens. Defaulting to 'square' brackets.")
+            return "square"
+
+        first_char = special_tokens[0][0]
+        if first_char == "<":
+            return "angle"
+        elif first_char == "[":
+            return "square"
+        else:
+            logger.warning(f"Unrecognized special token format (starts with '{first_char}'). Defaulting to 'square' brackets.")
+            return "square"
+    except Exception as e:
+        logger.warning(f"Error determining bracket type: {e}. Defaulting to 'square' brackets.")
         return "square"
-    else:
-        raise ValueError(f"Invalid special token bracket: {special_token_bracket}")
 def gap_sequence(sequences: Sequence[str], bracket_type = "square") -> Sequence[str]:
     if bracket_type == "square":
         seqs = [" ".join(re.findall(r"\[.*?\]|.", sequence)) for sequence in sequences]
@@ -645,13 +665,19 @@ class IOFlushWorker(threading.Thread):
 
     def flush_key(self, key):
         try:
+            t0 = time.time()
             mmap_handle = self.memmap_registry[key]
+            batch_count = len(self.buffer[key])
+            total_elements = sum(len(arr) for _, arr in self.buffer[key])
             for offset, arr in self.buffer[key]:
                 mmap_handle[offset : offset + len(arr)] = arr
                 # Mark this range as completed for crash recovery
                 output_type, layer, head = key
                 self.mark_range_completed(output_type, layer, head, offset, len(arr))
             mmap_handle.flush()
+            duration = time.time() - t0
+            if duration > 1.0: # Only log slow flushes
+                logger.info(f"[IOFlushWorker] Slow flush for {key}: {duration:.2f}s for {batch_count} batches ({total_elements} elements)")
         except Exception as e:
             logger.error(f"[IOFlushWorker] Exception during flush: {e}")
             raise e
@@ -817,6 +843,10 @@ class MultiIODispatcher:
             )
             self.num_heavy_workers = 0
             self.num_light_workers = num_workers
+        elif num_workers == 1:
+            logger.info("[MultiIODispatcher] Only 1 worker available. Assigning all keys to this worker.")
+            self.num_heavy_workers = 1
+            self.num_light_workers = 1 # Both point to the same worker
         else:
             self.num_heavy_workers = max(1, int(num_workers * heavy_proportion))
             self.num_light_workers = num_workers - self.num_heavy_workers
@@ -829,13 +859,16 @@ class MultiIODispatcher:
         sharded_registries = [{} for _ in range(num_workers)]
 
         for key, mmap in memmap_registry.items():
-            output_type = key[0]  # assuming key = (output_type, layer, head)
-            if output_type == self.heavy_output_type and self.num_heavy_workers > 0:
-                # Only assign heavy keys to heavy workers
-                shard_id = hash(key) % self.num_heavy_workers
+            if num_workers == 1:
+                shard_id = 0
             else:
-                # Assign light keys to light workers
-                shard_id = self.num_heavy_workers + (hash(key) % self.num_light_workers)
+                output_type = key[0]  # assuming key = (output_type, layer, head)
+                if output_type == self.heavy_output_type and self.num_heavy_workers > 0:
+                    # Only assign heavy keys to heavy workers
+                    shard_id = hash(key) % self.num_heavy_workers
+                else:
+                    # Assign light keys to light workers
+                    shard_id = self.num_heavy_workers + (hash(key) % self.num_light_workers)
             sharded_registries[shard_id][key] = mmap
 
         for i, reg in enumerate(sharded_registries):
@@ -850,10 +883,14 @@ class MultiIODispatcher:
             worker.start()
             self.workers.append(worker)
         # Assign worker groups
-        self.heavy_workers = (
-            self.workers[: self.num_heavy_workers] if self.num_heavy_workers > 0 else []
-        )
-        self.light_workers = self.workers[self.num_heavy_workers :]
+        if num_workers == 1:
+            self.heavy_workers = self.workers
+            self.light_workers = self.workers
+        else:
+            self.heavy_workers = (
+                self.workers[: self.num_heavy_workers] if self.num_heavy_workers > 0 else []
+            )
+            self.light_workers = self.workers[self.num_heavy_workers :]
 
     def queue_fullness(self):
         # Return max fullness across all workers (pessimistic view)
@@ -861,7 +898,9 @@ class MultiIODispatcher:
 
     def enqueue(self, output_type, layer, head, offset, array):
         key = (output_type, layer, head)
-        if output_type == self.heavy_output_type:
+        if self.num_workers == 1:
+            self.workers[0].enqueue(output_type, layer, head, offset, array)
+        elif output_type == self.heavy_output_type:
             # Route heavy output_type to heavy_workers (hashed for key affinity)
             worker_id = hash(key) % self.num_heavy_workers
             self.heavy_workers[worker_id].enqueue(

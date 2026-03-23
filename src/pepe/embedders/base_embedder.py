@@ -60,8 +60,8 @@ class BaseEmbedder:
         self.chunks_mapping = {}  # Map original label to list of chunk labels
         self.chunk_payload_lengths = {} # Map chunk label to its payload length
         self.original_sequences = {} # Store original sequence for reference
-        if torch.cuda.is_available() and args.device == "cuda":
-            self.device = torch.device("cuda")
+        if torch.cuda.is_available() and args.device.startswith("cuda"):
+            self.device = torch.device(args.device)
         else:
             self.device = torch.device("cpu")
         self.output_types = args.extract_embeddings
@@ -88,6 +88,9 @@ class BaseEmbedder:
         self.flush_batches_after = args.flush_batches_after * 1024**2  # in bytes
         self.precision = args.precision
         # self.log_memory = args.log_memory # TODO implement memory logging
+        self.total_gpu_time = 0.0
+        self.total_backpressure_time = 0.0
+        self.total_io_enqueue_time = 0.0
 
         # Set up checkpoint directory for crash recovery
         self.checkpoint_dir = self.output_path
@@ -348,6 +351,7 @@ class BaseEmbedder:
             # Start centralized I/O dispatcher with checkpoint support
             self.io_dispatcher = MultiIODispatcher(
                 self.memmap_registry,
+                num_workers=self.num_workers,
                 flush_bytes_limit=self.flush_batches_after,
                 heavy_output_type="per_token",
                 checkpoint_dir=self.checkpoint_dir,
@@ -376,11 +380,13 @@ class BaseEmbedder:
                 pooling_mask = self._mask_special_tokens(
                     toks, self.special_tokens  # type: ignore
                 ).cpu()  # mask special tokens to avoid diluting signal when pooling embeddings
+                t0_gpu = time.time()
                 logits, representations, attention_matrices = self._safe_compute(
                     toks, attention_mask
                 )
                 torch.cuda.empty_cache()
-
+                self.total_gpu_time += time.time() - t0_gpu
+                
                 output_bundle = {
                     "logits": logits,
                     "attention_matrices": attention_matrices,
@@ -393,12 +399,21 @@ class BaseEmbedder:
                 }
                 if self.streaming_output:
                     # Apply backpressure if write queue is too full
+                    t0_bp = time.time()
+                    backpressure_triggered = False
                     while self.io_dispatcher.queue_fullness() > 0.6:
-                        logger.warning(
-                            "[embed] Backpressure: waiting for IOFlushWorker to catch up..."
-                        )
+                        if not backpressure_triggered:
+                            logger.warning(
+                                f"[embed] Backpressure: queue fullness {self.io_dispatcher.queue_fullness():.2f}. Waiting for IOFlushWorker to catch up..."
+                            )
+                            backpressure_triggered = True
                         time.sleep(0.05)
+                    if backpressure_triggered:
+                        self.total_backpressure_time += time.time() - t0_bp
+                
+                t0_io = time.time()
                 self._extract_batch(output_bundle)
+                self.total_io_enqueue_time += time.time() - t0_io
 
                 del logits, representations, attention_matrices
                 gc.collect()
@@ -416,6 +431,13 @@ class BaseEmbedder:
                 self.io_dispatcher.stop()
 
             logger.info("Finished extracting embeddings")
+            logger.info(f"--- Profiling Results ---")
+            logger.info(f"Total GPU compute time: {self.total_gpu_time:.2f}s")
+            logger.info(f"Total Backpressure wait time: {self.total_backpressure_time:.2f}s")
+            logger.info(f"Total IO Enqueue time: {self.total_io_enqueue_time:.2f}s")
+            if self.total_gpu_time > 0:
+                overhead = (self.total_backpressure_time + self.total_io_enqueue_time) / self.total_gpu_time
+                logger.info(f"IO Overhead ratio: {overhead:.2f}x")
 
         # After successful completion, clean up the checkpoint file
         if self.streaming_output:

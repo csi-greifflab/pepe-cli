@@ -11,7 +11,7 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     ```
     From Conda:
     ```sh
-    conda install -c <your-channel> pepe-cli
+    conda install -c jahn_zhong pepe-cli
     ```
     Or install from the GitHub repository:    
     ```sh
@@ -46,7 +46,7 @@ results = pepe.embed(
     sequences=sequences,
     output_path="my_embeddings",
     extract_embeddings=["mean_pooled"],
-    device="cpu"  # Use "cuda" if available
+    device="cpu"  # Use "cuda", "cuda:0", "cuda:1", etc. if available
 )
 
 # Or from a FASTA file
@@ -205,7 +205,7 @@ results = pepe.embed(
 ### Model Configuration
 - **`--tokenizer_from`** (str, optional): Huggingface address of the tokenizer to use. If not provided, will attempt to search for tokenizer packaged with model. If using a custom model, provide the path to the tokenizer directory.
 - **`--disable_special_tokens`** (bool, optional): When True, PEPE disables pre- and appending BOS/CLS and EOS/SEP tokens before embedding. Default is `False`.
-- **`--device`** (str, optional): Device to run the model on. Choose from `cuda` or `cpu`. Default is `cuda`.
+- **`--device`** (str, optional): Device to run the model on. Choose from `cuda`, `cpu`, or specific GPU indices like `cuda:0`, `cuda:1`. Default is `cuda`.
 
 ### Embedding Configuration
 - **`--layers`** (str, optional): Representation layers to extract from the model. Default is the last layer. Example: `--layers -1 6`.

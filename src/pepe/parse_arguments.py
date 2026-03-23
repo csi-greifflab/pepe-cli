@@ -178,8 +178,8 @@ def parse_arguments():
         "--device",
         type=str.lower,
         default="cuda",
-        choices=["cuda", "cpu"],
-        help="Device to run the model on. Default is 'cuda'.",
+        default="cuda",
+        help="Device to run the model on ('cuda', 'cpu', 'cuda:0', 'cuda:1', etc.). Default is 'cuda'.",
     )
 
     args = parser.parse_args()
