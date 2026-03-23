@@ -1,5 +1,6 @@
 import logging
 import sys
+from pepe.api import embed  # Exported to top-level
 
 # Package metadata - single source of truth
 __version__ = "1.0.4.dev1"

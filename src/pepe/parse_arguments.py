@@ -106,13 +106,15 @@ def parse_arguments():
     )
     parser.add_argument(
         "--discard_padding",
-        action="store_true",
-        help="Discard padding tokens from per_token embeddings output. Not compatible with --streaming_output Default is False.",
+        type=str2bool,
+        choices=[True, False],
+        default=False,
+        help="Discard padding tokens from per_token embeddings output. Not compatible with --streaming_output. Default is False.",
     )
     parser.add_argument(
         "--max_input_length",
         type=str,
-        default="max_input_length",
+        default="max_length",
         help="Length to which sequences will be padded. Default is length of longest sequence in input file. If shorter than longest sequence, will forcefully default to length of longest sequence.",
     )
     parser.add_argument(

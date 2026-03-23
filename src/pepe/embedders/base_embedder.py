@@ -66,7 +66,12 @@ class BaseEmbedder:
             self.device = torch.device("cpu")
         self.output_types = args.extract_embeddings
         self.discard_padding = args.discard_padding
-        self.flatten = args.flatten
+        self.streaming_output = args.streaming_output
+        if self.discard_padding and self.streaming_output:
+            logger.warning(
+                "Warning: --discard_padding is not compatible with --streaming_output. Streaming output will be disabled."
+            )
+            self.streaming_output = False
         self.return_embeddings = False
         self.return_contacts = False
         self.return_logits = False
@@ -77,7 +82,7 @@ class BaseEmbedder:
                 self.return_contacts = True
             if output_type == "logits":
                 self.return_logits = True
-        self.streaming_output = args.streaming_output
+        self.flatten = args.flatten
         self.num_workers = args.num_workers if self.streaming_output else 1
         self.max_in_flight = self.num_workers * 2
         self.flush_batches_after = args.flush_batches_after * 1024**2  # in bytes
@@ -553,6 +558,7 @@ class BaseEmbedder:
         self,
         representations,
         batch_labels,
+        pooling_mask,
         offset,
     ):
         if not self.discard_padding:
@@ -576,20 +582,21 @@ class BaseEmbedder:
                     )
                 else:
                     self.per_token["output_data"][layer].extend(tensor)
-        else:  # TODO remove padding tokens
-            logger.warning("Feature not implemented yet")
-            pass
+        else:
             for layer in self.layers:  # type: ignore
                 if self.flatten:
                     self.per_token["output_data"][layer].extend(
                         [
-                            representations[layer][i].flatten(start_dim=1)
+                            representations[layer][i][pooling_mask[i]].flatten()
                             for i in range(len(batch_labels))
                         ]
                     )
                 else:
                     self.per_token["output_data"][layer].extend(
-                        [representations[layer][i] for i in range(len(batch_labels))]
+                        [
+                            representations[layer][i][pooling_mask[i]]
+                            for i in range(len(batch_labels))
+                        ]
                     )
 
     def _extract_attention_head(
@@ -718,6 +725,10 @@ class BaseEmbedder:
                 self.substring_pooled["output_data"][layer].extend(tensor)
 
     def _prepare_tensor(self, data_list, flatten):
+        if self.discard_padding:
+            # Handle variable-length sequences by returning an object array of numpy arrays
+            return np.array([t.numpy() for t in data_list], dtype=object)
+        
         tensor = torch.stack(data_list, dim=0)
         if flatten:
             tensor = tensor.flatten(start_dim=1)

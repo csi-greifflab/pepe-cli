@@ -122,7 +122,7 @@ class ESMEmbedder(BaseEmbedder):
             substring_dict,
             self.context,
             self.alphabet,
-            self.max_length,
+            self.max_input_length,
             self.prepend_bos,  # type: ignore
             self.append_eos,  # type: ignore
         )

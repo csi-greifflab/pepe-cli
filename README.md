@@ -205,23 +205,31 @@ results = pepe.embed(
 
 ### Embedding Configuration
 - **`--layers`** (str, optional): Representation layers to extract from the model. Default is the last layer. Example: `--layers -1 6`.
-- **`--extract_embeddings`** (str, optional): Set the embedding return types. Choose one or more from: `per_token`, `mean_pooled`, `substring_pooled`, `attention_head`, `attention_layer`, `attention_model` and `logits` (experimental). Default is `mean_pooled`.
+- **`--extract_embeddings`** (str, optional): Set the embedding return types. Choose one or more from:
+  - `per_token`: Extracts embeddings for each token (amino acid) in the sequence. Output shape: `(num_sequences, max_length, embedding_size)`.
+  - `mean_pooled`: Computes the average embedding across all tokens in a sequence, excluding special tokens (BOS, EOS, padding). Output shape: `(num_sequences, embedding_size)`.
+  - `substring_pooled`: Computes the average embedding for a specific substring within each sequence (e.g., a CDR3 region). Requires `--substring_path`. Output shape: `(num_sequences, embedding_size)`.
+  - `attention_head`: Extracts raw attention weights for every individual head in the specified layers. Output shape: `(num_sequences, max_length, max_length)` per head.
+  - `attention_layer`: Extracts the average attention weights across all heads within each specified layer. Output shape: `(num_sequences, max_length, max_length)` per layer.
+  - `attention_model`: Extracts the average attention weights across all heads and all specified layers. Output shape: `(num_sequences, max_length, max_length)`.
+  - `logits`: Extracts the raw language model output (logits). (Experimental)
+  Default is `mean_pooled`.
 - **`--substring_path`** (str, optional): Path to a CSV file with columns "sequence_id" and "substring". Only required when selecting "substring_pooled" option.
 - **`--context`** (int, optional): Only specify when including "substring_pooled" in `--extract_embeddings` option. Number of amino acids to include before and after the substring sequence. Default is `0`.
 
 ### Processing Configuration
 - **`--batch_size`** (int, optional): Batch size for loading sequences. Default is `1024`. Decrease if encountering out-of-memory errors.
-- **`--max_length`** (int, optional): Length to which sequences will be padded. Default is length of longest sequence in input file. If shorter than longest sequence, will forcefully default to length of longest sequence.
+- **`--max_length`** (int, optional): Length to which sequences will be padded. Default is length of longest sequence in input file + special token(s). If shorter than longest sequence, will forcefully default to length of longest sequence + special token(s).
 - **`--split_long_sequences`** (bool, optional): When True, automatically detect sequences exceeding the model's maximum allowed length and split them into chunks for processing. Default is `False`.
 - **`--split_overlap`** (int, optional): Number of tokens to overlap when splitting long sequences. This helps maintain context across chunk boundaries. Default is `0`.
 - **`--force_split_length`** (int, optional): Explicitly force sequence splitting at a specific length, overriding the model's auto-detected limits. Default is `None`.
-- **`--discard_padding`** (bool, optional): Discard padding tokens from per_token embeddings output. Default is `False`.
+- **`--discard_padding`** (bool, optional): Discard padding tokens from per_token embeddings output. **Note**: Setting this to `True` will automatically disable `--streaming_output`. Default is `False`.
 
 
 ### Output Configuration
 - **`--experiment_name`** (str, optional): Prefix for names of output files. If not provided, name of input file will be used for prefix.
 - **`--streaming_output`** (bool, optional): PEPE preallocates the required disk space and writes each batch of outputs concurrently. Can pose issues with file systems that do not support memory mapping (such as some distributed file systems.)
-When False, all outputs are stored in RAM and written to disk at once after computation has finished. Default is `True`.
+When False, all outputs are stored in RAM and written to disk at once after computation has finished. **Note**: Automatically disabled if `--discard_padding` is `True`. Default is `True`.
 - **`--precision`** (str, optional): Precision of the output data. Choose from `float16`, `16`, `half`, `float32`, `32`, `full`. Inference during embedding is not affected. Default is `float32`.
 - **`--flatten`** (bool, optional): Flatten 2D output arrays (per_token embeddings or attention weights) to 1D arrays per input sequence. Default is `False`.
 

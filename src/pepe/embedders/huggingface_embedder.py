@@ -214,7 +214,7 @@ class T5Embedder(HuggingfaceEmbedder):
             self.tokenizer.all_special_ids, device=self.device, dtype=torch.int8
         )
         self.layers = self._load_layers(self.layers)
-        self.data_loader, self.max_length = self._load_data(
+        self.data_loader, self.max_input_length = self._load_data(
             self.sequences, self.substring_dict, self.bracket_type
         )
         self._set_output_objects()
@@ -280,7 +280,7 @@ class GenericHuggingFaceEmbedder(HuggingfaceEmbedder):
             self.tokenizer.all_special_ids, device=self.device, dtype=torch.int8
         )
         self.layers = self._load_layers(self.layers)
-        self.data_loader, self.max_length = self._load_data(
+        self.data_loader, self.max_input_length = self._load_data(
             self.sequences, self.substring_dict, self.bracket_type
         )
         self._set_output_objects()

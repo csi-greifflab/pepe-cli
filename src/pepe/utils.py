@@ -166,11 +166,13 @@ class HuggingFaceDataset(SequenceDictDataset):
         if max_length == "max_length":
             max_length = max_token_length
             logger.info(f"Setting max_length to {max_length} (including {special_tokens_count} special tokens).")
-        elif isinstance(max_length, int) and max_length < max_token_length:
-            logger.warning(
-                f"max_length {max_length} is less than the length of the longest sequence + special tokens ({max_token_length}). Setting max_length to {max_token_length}."
-            )
-            max_length = max_token_length
+        else:
+            max_length = int(max_length)
+            if max_length < max_token_length:
+                logger.warning(
+                    f"max_length {max_length} is less than the length of the longest sequence + special tokens ({max_token_length}). Setting max_length to {max_token_length}."
+                )
+                max_length = max_token_length
         loop_input_ids = []
         loop_attention_mask = []
         with alive_bar(len(strs), title="Tokenizing sequences...") as bar:
@@ -272,10 +274,13 @@ class ESMDataset(SequenceDictDataset):
         max_encoded_length = max(len(seq_encoded) for seq_encoded in encoded)
         if max_length == "max_length":
             max_length = max_encoded_length
-        elif isinstance(max_length, int) and max_length < max_encoded_length:
-            logger.warning(
-                f"max_length {max_length} is less than the length of the longest sequence: {max_encoded_length}. Setting max_length to {max_encoded_length}."
-            )
+        else:
+            max_length = int(max_length)
+            if max_length < max_encoded_length:
+                logger.warning(
+                    f"max_length {max_length} is less than the length of the longest sequence: {max_encoded_length}. Setting max_length to {max_encoded_length}."
+                )
+                max_length = max_encoded_length
         tokens = torch.empty(
             (len(encoded), max_length + int(prepend_bos) + int(append_eos)),
             dtype=torch.int64,
