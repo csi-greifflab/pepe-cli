@@ -20,11 +20,24 @@ class TokenBudgetBatchSampler:
         self.dataset = dataset
         self.token_budget = token_budget
 
-        # Assume all sequences have the same length (already padded)
-        sample_seq_len = len(
-            dataset[0][2]
-        )  # dataset[idx] -> (label, seq_str, toks, mask)
-        self.batch_size = max(1, token_budget // sample_seq_len)
+        # In PEPE, datasets typically pad all sequences to the same length (max_length)
+        # Handle empty dataset case
+        if len(dataset) == 0:
+            self.batch_size = 1
+            self.batches = []
+            return
+
+        # dataset[idx] -> (label, seq_str, toks, ...)
+        sample_seq_len = len(dataset[0][2])
+        
+        if sample_seq_len > token_budget:
+            logger.warning(
+                f"A sequence has length {sample_seq_len}, which exceeds the specified token budget (batch_size) of {token_budget}. "
+                "The budget will be effectively increased for batches containing such sequences."
+            )
+            self.batch_size = 1
+        else:
+            self.batch_size = max(1, token_budget // sample_seq_len)
 
         self.batches = self._create_batches()
 
@@ -40,6 +53,8 @@ class TokenBudgetBatchSampler:
 
     def __len__(self):
         return len(self.batches)
+
+
 
 
 class SequenceDictDataset(Dataset):
