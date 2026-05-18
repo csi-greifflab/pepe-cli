@@ -127,7 +127,7 @@ jobs:
           CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
           sed -i "s/__version__ = \"$CURRENT_VERSION\"/__version__ = \"$GIT_DESCRIBE_TAG\"/" src/pepe/__init__.py
           echo "Updated version to $GIT_DESCRIBE_TAG for conda build"
-          conda build .github/conda --output-folder dist/conda --channel pytorch --channel conda-forge --channel defaults
+          conda-build .github/conda --output-folder dist/conda --channel pytorch --channel conda-forge --channel defaults
 
       - name: Upload to Anaconda (Test Label)
         shell: bash -l {0}

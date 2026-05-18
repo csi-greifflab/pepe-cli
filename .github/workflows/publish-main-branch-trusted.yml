@@ -185,7 +185,7 @@ jobs:
       - name: Build Conda Package
         shell: bash -l {0}
         run: |
-          conda build .github/conda --output-folder dist/conda
+          conda-build .github/conda --output-folder dist/conda --channel pytorch --channel conda-forge --channel defaults
 
       - name: Upload to Anaconda
         shell: bash -l {0}
