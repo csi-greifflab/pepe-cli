@@ -1,3 +1,8 @@
+readme_advanced_results/
+readme_example_results/
+test_library_out*
+venv*
+test_verify_*
 update_package_name.py
 update_version.py
 src/tests/test_files/test_output

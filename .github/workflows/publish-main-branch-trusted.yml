@@ -36,10 +36,10 @@ jobs:
     
     - name: Verify version for main branch
       run: |
-        # Get current version and package name from __init__.py
-        CURRENT_VERSION=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __version__; print(__version__)")
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
-        MODULE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __module_name__; print(__module_name__)")
+        # Extract metadata directly from __init__.py (avoids importing package deps like torch)
+        CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
+        MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
         
         # Check if version contains -dev or -test (should not be in main branch)
         if [[ "$CURRENT_VERSION" == *"-dev"* ]] || [[ "$CURRENT_VERSION" == *"-test"* ]]; then
@@ -76,9 +76,8 @@ jobs:
     
     - name: Output installation command
       run: |
-        # Get package name from __init__.py
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
-        CURRENT_VERSION=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __version__; print(__version__)")
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
+        CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
         echo "🎉 Package published to PyPI!"
         echo "To install the release version, run:"
         echo "pip install \"$PACKAGE_NAME==$CURRENT_VERSION\""
@@ -92,10 +91,9 @@ jobs:
     
     - name: Test installation and functionality
       run: |
-        # Get package and module names from __init__.py
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
-        MODULE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __module_name__; print(__module_name__)")
-        CURRENT_VERSION=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __version__; print(__version__)")
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
+        MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
+        CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
         
         # Create a fresh virtual environment for testing
         python3 -m venv test_env
@@ -109,7 +107,7 @@ jobs:
         
         # Test basic import
         python3 -c "import $MODULE_NAME; print('Package imported successfully')"
-        
+
         # Test version matches
         INSTALLED_VERSION=$(python3 -c "import $MODULE_NAME; print($MODULE_NAME.__version__)")
         if [ "$INSTALLED_VERSION" != "$CURRENT_VERSION" ]; then
@@ -117,32 +115,23 @@ jobs:
           exit 1
         fi
         echo "✅ Version verification passed: $INSTALLED_VERSION"
-        
-        # Run the test script
-        echo "Running test script..."
-        chmod +x src/tests/test_run.sh
-        bash src/tests/test_run.sh
-        
-        # Check if test output was created
-        if [ -d "src/tests/test_files/test_output" ]; then
-          echo "✅ Test completed successfully - output directory created"
-          ls -la src/tests/test_files/test_output/
-        else
-          echo "❌ Test failed - no output directory found"
-          exit 1
-        fi
-        
+
+        # Run unit tests that don't require model downloads
+        echo "Running unit tests..."
+        pip install pytest
+        python3 -m pytest src/tests/test_device_logic.py -v
+
         # Clean up
         deactivate
         rm -rf test_env
-        
+
         echo "🎉 Package verification completed successfully!"
         echo "Package $PACKAGE_NAME version $CURRENT_VERSION is now available on PyPI!"
     
     - name: Get version for release
       id: get_version
       run: |
-        VERSION=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __version__; print(__version__)")
+        VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
         echo "version=$VERSION" >> $GITHUB_OUTPUT
     
     - name: Create GitHub Release
@@ -174,3 +163,40 @@ jobs:
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-conda:
+    runs-on: ubuntu-latest
+    needs: build-and-publish-main
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: '3.10'
+          channels: pytorch,defaults,conda-forge,bioconda
+
+      - name: Install build tools
+        shell: bash -l {0}
+        run: |
+          conda install -y conda-build anaconda-client
+
+      - name: Build Conda Package
+        shell: bash -l {0}
+        run: |
+          conda-build .github/conda --output-folder dist/conda --channel pytorch --channel conda-forge --channel defaults
+
+      - name: Upload to Anaconda
+        shell: bash -l {0}
+        env:
+          ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          # Find the built package (recursively in dist/conda)
+          PACKAGE_PATH=$(find dist/conda -name "*.tar.bz2" -o -name "*.conda" | head -n 1)
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "Error: No package found!"
+            exit 1
+          fi
+          echo "Found package: $PACKAGE_PATH"
+          anaconda -t $ANACONDA_TOKEN upload --label main $PACKAGE_PATH

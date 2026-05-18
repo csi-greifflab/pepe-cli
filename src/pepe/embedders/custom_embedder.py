@@ -53,11 +53,12 @@ class CustomEmbedder(BaseEmbedder):
 
         # Set up tokenizer and validate tokens
         self.valid_tokens = self._get_valid_tokens()
-        self.bracket_type = pepe.utils.get_bracket_type(self.tokenizer)
+        self._check_max_input_length()
         pepe.utils.check_input_tokens(
             self.valid_tokens,
             self.sequences,
             self.model_name,
+            split_long_sequences=self.split_long_sequences,
         )
 
         # Set up special tokens
@@ -67,8 +68,8 @@ class CustomEmbedder(BaseEmbedder):
         self.layers = self._load_layers(self.layers)
 
         # Load and tokenize data
-        self.data_loader, self.max_length = self._load_data(
-            self.sequences, self.substring_dict, self.bracket_type
+        self.data_loader, self.max_input_length = self._load_data(
+            self.sequences, self.substring_dict
         )
 
         # Initialize output objects
@@ -159,7 +160,7 @@ class CustomEmbedder(BaseEmbedder):
         model.eval()
 
         # Move model to appropriate device
-        if torch.cuda.is_available() and self.device.type == torch.device("cuda"):
+        if torch.cuda.is_available() and self.device.type == "cuda":
             model = model.cuda()
             logger.info("Transferred custom model to GPU")
         else:
@@ -300,14 +301,13 @@ class CustomEmbedder(BaseEmbedder):
         layers = [(i + self.num_layers + 1) % (self.num_layers + 1) for i in layers]
         return layers
 
-    def _load_data(self, sequences, substring_dict=None, bracket_type=None):
+    def _load_data(self, sequences, substring_dict=None):
         """Load and tokenize sequences."""
         # Create dataset
         dataset = pepe.utils.CustomDataset(
             sequences,
             substring_dict,
             self.context,
-            bracket_type,
             self.tokenizer,
             self.max_length,
             add_special_tokens=not self.disable_special_tokens,

@@ -12,6 +12,8 @@ jobs:
     permissions:
       id-token: write  # Required for trusted publishing
       contents: read
+    outputs:
+      test_version: ${{ steps.version_step.outputs.test_version }}
     
     steps:
     - uses: actions/checkout@v4
@@ -27,15 +29,20 @@ jobs:
         pip install build
     
     - name: Update version for test branch
+      id: version_step
       run: |
         # Get current timestamp for unique version
         TIMESTAMP=$(date +%Y%m%d%H%M%S)
-        # Get current version and package name from __init__.py
-        CURRENT_VERSION=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __version__; print(__version__)")
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
-        MODULE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __module_name__; print(__module_name__)")
+        # Extract metadata directly from __init__.py (avoids importing package deps like torch)
+        CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
+        MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
         # Create test version by replacing -dev with .dev and adding timestamp
-        TEST_VERSION=$(echo $CURRENT_VERSION | sed "s/-dev/.dev${TIMESTAMP}/")
+        TEST_VERSION=$(echo $CURRENT_VERSION | sed -E "s/(-dev|\.dev[0-9]*)$/.dev${TIMESTAMP}/")
+        
+        # Output version for other jobs
+        echo "test_version=$TEST_VERSION" >> $GITHUB_OUTPUT
+        
         # Update version in __init__.py
         sed -i "s/__version__ = \"$CURRENT_VERSION\"/__version__ = \"$TEST_VERSION\"/" src/pepe/__init__.py
         echo "Updated version from $CURRENT_VERSION to $TEST_VERSION"
@@ -54,8 +61,7 @@ jobs:
     
     - name: Output installation command
       run: |
-        # Get package name from __init__.py
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
         echo "Package published to TestPyPI!"
         echo "To install the test version, run:"
         echo "pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple \"$PACKAGE_NAME\""
@@ -67,9 +73,8 @@ jobs:
     
     - name: Test installation and functionality
       run: |
-        # Get package and module names from __init__.py
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
-        MODULE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __module_name__; print(__module_name__)")
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
+        MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
         
         # Create a fresh virtual environment for testing
         python3 -m venv test_env
@@ -83,23 +88,56 @@ jobs:
         
         # Test basic import
         python3 -c "import $MODULE_NAME; print('Package imported successfully')"
-        
-        # Run the test script
-        echo "Running test script..."
-        chmod +x src/tests/test_run.sh
-        bash src/tests/test_run.sh
-        
-        # Check if test output was created
-        if [ -d "src/tests/test_files/test_output" ]; then
-          echo "✅ Test completed successfully - output directory created"
-          ls -la src/tests/test_files/test_output/
-        else
-          echo "❌ Test failed - no output directory found"
-          exit 1
-        fi
-        
+
+        # Run unit tests that don't require model downloads
+        echo "Running unit tests..."
+        pip install pytest
+        python3 -m pytest src/tests/test_device_logic.py -v
+
         # Clean up
         deactivate
         rm -rf test_env
-        
+
         echo "✅ Package verification completed successfully!"
+
+  publish-conda-test:
+    runs-on: ubuntu-latest
+    needs: build-and-publish-test
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+          python-version: '3.10'
+          channels: pytorch,defaults,conda-forge,bioconda
+
+      - name: Install build tools
+        shell: bash -l {0}
+        run: |
+          conda install -y conda-build anaconda-client
+
+      - name: Build Conda Package
+        shell: bash -l {0}
+        env:
+          GIT_DESCRIBE_TAG: ${{ needs.build-and-publish-test.outputs.test_version }}
+        run: |
+          # Sync __init__.py version to match the conda recipe version
+          CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
+          sed -i "s/__version__ = \"$CURRENT_VERSION\"/__version__ = \"$GIT_DESCRIBE_TAG\"/" src/pepe/__init__.py
+          echo "Updated version to $GIT_DESCRIBE_TAG for conda build"
+          conda-build .github/conda --output-folder dist/conda --channel pytorch --channel conda-forge --channel defaults
+
+      - name: Upload to Anaconda (Test Label)
+        shell: bash -l {0}
+        env:
+          ANACONDA_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          PACKAGE_PATH=$(find dist/conda -name "*.tar.bz2" -o -name "*.conda" | head -n 1)
+          if [ -z "$PACKAGE_PATH" ]; then
+            echo "Error: No package found!"
+            exit 1
+          fi
+          echo "Found package: $PACKAGE_PATH"
+          anaconda -t $ANACONDA_TOKEN upload --label test $PACKAGE_PATH

@@ -76,7 +76,7 @@ class HuggingfaceEmbedder(BaseEmbedder):
             self.context,
             bracket_type,
             self.tokenizer,  # type: ignore
-            self.max_length,
+            self.max_input_length,
             add_special_tokens=not self.disable_special_tokens,
         )
         logger.info("Batching sequences...")
@@ -145,22 +145,27 @@ class Antiberta2Embedder(HuggingfaceEmbedder):
         ) = self._initialize_model(self.model_link)
         self.valid_tokens = set(self.tokenizer.get_vocab().keys())
         self.bracket_type = pepe.utils.get_bracket_type(self.tokenizer)
+        self._check_max_input_length()
         pepe.utils.check_input_tokens(
-            self.valid_tokens, self.sequences, self.model_name
+            self.valid_tokens,
+            self.sequences,
+            self.model_name,
+            split_long_sequences=self.split_long_sequences,
         )
         self.special_tokens = torch.tensor(
             self.tokenizer.all_special_ids, device=self.device, dtype=torch.int8
         )
         self.layers = self._load_layers(self.layers)
-        self.data_loader, self.max_length = self._load_data(
+        self.data_loader, self.max_input_length = self._load_data(
             self.sequences, self.substring_dict, self.bracket_type
         )
         self._set_output_objects()
-        assert self.max_length <= 256, "AntiBERTa2 only supports max_length <= 256"
+        if not self.split_long_sequences:
+            assert self.max_input_length <= 256, "AntiBERTa2 only supports max_length <= 256. Use --split_long_sequences to process longer sequences."
 
     def _initialize_model(self, model_link="alchemab/antiberta2-cssp"):
         """Initialize the model, tokenizer, and device."""
-        if torch.cuda.is_available() and self.device == torch.device("cuda"):
+        if torch.cuda.is_available() and self.device.type == "cuda":
             device = torch.device("cuda")
             logger.info("Transferred model to GPU")
         else:
@@ -209,7 +214,7 @@ class T5Embedder(HuggingfaceEmbedder):
             self.tokenizer.all_special_ids, device=self.device, dtype=torch.int8
         )
         self.layers = self._load_layers(self.layers)
-        self.data_loader, self.max_length = self._load_data(
+        self.data_loader, self.max_input_length = self._load_data(
             self.sequences, self.substring_dict, self.bracket_type
         )
         self._set_output_objects()
@@ -224,7 +229,7 @@ class T5Embedder(HuggingfaceEmbedder):
     def _initialize_model(self, model_link="Rostlab/prot_t5_xl_half_uniref50-enc"):
         """Initialize the model, tokenizer, and device."""
 
-        if torch.cuda.is_available() and self.device == torch.device("cuda"):
+        if torch.cuda.is_available() and self.device.type == "cuda":
             device = torch.device("cuda")
             logger.info("Transferred model to GPU")
         else:
@@ -275,7 +280,7 @@ class GenericHuggingFaceEmbedder(HuggingfaceEmbedder):
             self.tokenizer.all_special_ids, device=self.device, dtype=torch.int8
         )
         self.layers = self._load_layers(self.layers)
-        self.data_loader, self.max_length = self._load_data(
+        self.data_loader, self.max_input_length = self._load_data(
             self.sequences, self.substring_dict, self.bracket_type
         )
         self._set_output_objects()
@@ -298,7 +303,7 @@ class GenericHuggingFaceEmbedder(HuggingfaceEmbedder):
 
     def _initialize_model(self, model_link):
         """Initialize the model, tokenizer, and device using AutoModel and AutoTokenizer."""
-        if torch.cuda.is_available() and self.device == "cuda":
+        if torch.cuda.is_available() and self.device.type == "cuda":
             device = torch.device("cuda")
             logger.info("Transferred model to GPU")
         else:

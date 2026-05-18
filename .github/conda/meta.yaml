@@ -1,0 +1,34 @@
+package:
+  name: pepe-cli
+  version: {{ environ.get('GIT_DESCRIBE_TAG', '0.0.0').lstrip('v') }}
+
+source:
+  path: ../..
+
+build:
+  noarch: python
+  script: {{ PYTHON }} -m pip install . -vv
+  number: 0
+
+requirements:
+  host:
+    - python >=3.8
+    - pip
+    - setuptools
+    - wheel
+  run:
+    - python >=3.8
+    - pytorch >=1.9.0
+    - transformers >=4.20.0
+    - sentencepiece
+    - numpy
+    - protobuf
+    - alive-progress
+
+about:
+  home: https://github.com/csi-greifflab/pepe-cli
+  license: MIT
+  license_file: LICENSE
+  summary: Pipeline for Easy Protein Embedding
+  doc_url: https://github.com/csi-greifflab/pepe-cli#readme
+  dev_url: https://github.com/csi-greifflab/pepe-cli

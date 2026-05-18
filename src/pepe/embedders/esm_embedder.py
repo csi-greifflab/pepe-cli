@@ -36,14 +36,18 @@ class ESMEmbedder(BaseEmbedder):
             self.append_eos,
         ) = self._initialize_model(self.model_name)
         self.valid_tokens = set(self.alphabet.all_toks)
+        self._check_max_input_length()
         pepe.utils.check_input_tokens(
-            self.valid_tokens, self.sequences, self.model_name
+            self.valid_tokens,
+            self.sequences,
+            self.model_name,
+            split_long_sequences=self.split_long_sequences,
         )
         self.special_tokens = self.get_special_tokens()
         self.layers = self._load_layers(self.layers)
-        self.data_loader, self.max_length = self._load_data(
+        self.data_loader, self.max_input_length = self._load_data(
             self.sequences, self.substring_dict
-        )  # tokenize and batch sequences and update max_length
+        )  # tokenize and batch sequences and update max_input_length
         self._set_output_objects()
 
     def _initialize_model(self, model_name):
@@ -73,7 +77,7 @@ class ESMEmbedder(BaseEmbedder):
         )
 
         # Moving the model to GPU if available for faster processing
-        if torch.cuda.is_available() and self.device == torch.device("cuda"):
+        if torch.cuda.is_available() and self.device.type == "cuda":
             model = model.cuda()
             logger.info("Transferred model to GPU")
         else:
@@ -118,7 +122,7 @@ class ESMEmbedder(BaseEmbedder):
             substring_dict,
             self.context,
             self.alphabet,
-            self.max_length,
+            self.max_input_length,
             self.prepend_bos,  # type: ignore
             self.append_eos,  # type: ignore
         )

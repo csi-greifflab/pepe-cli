@@ -10,7 +10,7 @@ sys.argv = [
     "--experiment_name",
     "test",
     "--model_name",
-    "esm2_t33_650M_UR50D",
+    "ZYMScott/antiberty",
     "--fasta_path",
     "src/tests/test_files/test.fasta",
     "--output_path",
@@ -20,22 +20,26 @@ sys.argv = [
     "--extract_embeddings",
     "mean_pooled",
     "per_token",
-    "substring_pooled",
+    "substring_pooling",
     "attention_head",
-    "--streaming_output",
+    "--batch_writing",
     "true",
+    "--device",
+    "cpu",
 ]
 
-args = parse_arguments()
+if __name__ == "__main__":
+    args = parse_arguments()
 
-# Check if output directory exists and creates it if it's missing
-if not os.path.exists(args.output_path):
-    os.makedirs(args.output_path)
+    # Check if output directory exists and creates it if it's missing
+    if not os.path.exists(args.output_path):
+        os.makedirs(args.output_path)
 
-embedder = select_model(args.model_name)
+    embedder = select_model(args.model_name)
 
-embedder = embedder(args)
-print("Embedder initialized")
+    embedder = embedder(**vars(args))
+    print("Embedder initialized")
 
-embedder.run()
-print("All outputs saved.")
+    embedder.run()
+    print("All outputs saved.")
+

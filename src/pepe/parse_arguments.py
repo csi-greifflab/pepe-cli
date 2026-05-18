@@ -106,13 +106,33 @@ def parse_arguments():
     )
     parser.add_argument(
         "--discard_padding",
-        action="store_true",
-        help="Discard padding tokens from per_token embeddings output. Not compatible with --streaming_output Default is False.",
+        type=str2bool,
+        choices=[True, False],
+        default=False,
+        help="Discard padding tokens from per_token embeddings output. Not compatible with --streaming_output. Default is False.",
     )
     parser.add_argument(
-        "--max_length",
+        "--max_input_length",
+        type=str,
         default="max_length",
-        help="Length to which sequences will be padded. Default is longest sequence.",
+        help="Length to which sequences will be padded. Default is length of longest sequence in input file. If shorter than longest sequence, will forcefully default to length of longest sequence.",
+    )
+    parser.add_argument(
+        "--split_long_sequences",
+        action="store_true",
+        help="If a sequence exceeds the maximum permitted length for the chosen model, split it into smaller overlapping chunks and concatenate the output representations.",
+    )
+    parser.add_argument(
+        "--split_overlap",
+        type=int,
+        default=0,
+        help="Number of tokens to overlap when splitting long sequences. Default is 0.",
+    )
+    parser.add_argument(
+        "--force_split_length",
+        type=int,
+        default=None,
+        help="Optional limit to force sequence chunking at a specific length, overriding auto-detected model limits.",
     )
     parser.add_argument(
         "--streaming_output",
@@ -158,8 +178,8 @@ def parse_arguments():
         "--device",
         type=str.lower,
         default="cuda",
-        choices=["cuda", "cpu"],
-        help="Device to run the model on. Default is 'cuda'.",
+        default="cuda",
+        help="Device to run the model on ('cuda', 'cpu', 'cuda:0', 'cuda:1', etc.). Default is 'cuda'.",
     )
 
     args = parser.parse_args()

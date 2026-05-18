@@ -127,3 +127,36 @@ This setup creates/modifies:
 - `.github/workflows/publish-test-branch.yml`
 - `.github/workflows/publish-test-branch-trusted.yml`
 - `pyproject.toml` version is automatically updated during workflow runs
+
+## Conda Publishing Setup
+
+The repository is configured to build and publish Conda packages automatically when pushing to the `main` branch.
+
+### Prerequisites
+
+1.  **Anaconda/Miniconda**: Ensure you have Conda installed locally for testing builds.
+2.  **Anaconda.org Account**: You need an account on [Anaconda.org](https://anaconda.org/).
+
+### GitHub Configuration
+
+1.  **Get Anaconda API Token**:
+    - Log in to your Anaconda.org account.
+    - Go to **Settings** → **Access** → **Tokens**.
+    - Click **Create new token**.
+    - Give it a name (e.g., `GitHub Actions`) and ensure it has `allow uploads to standard channels` permission.
+    - Copy the token.
+
+2.  **Add Token to GitHub Secrets**:
+    - In your GitHub repository, go to **Settings** → **Secrets and variables** → **Actions**.
+    - Click **New repository secret**.
+    - Name: `ANACONDA_TOKEN`
+    - Value: Paste your Anaconda API token.
+
+### Workflow Integration
+
+The `publish-main-branch-trusted.yml` workflow includes a `publish-conda` job that:
+- Sets up a Conda environment.
+- Builds the package using the recipe in `.github/conda/meta.yaml`.
+- Uploads the package to your Anaconda.org channel with the `main` label.
+
+To verify the setup, you can manually trigger the workflow from the **Actions** tab.

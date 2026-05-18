@@ -53,14 +53,25 @@ class BaseEmbedder:
             self._load_substrings(args.substring_path) if args.substring_path else None
         )
         self.batch_size = args.batch_size
-        self.max_length = args.max_length
-        if torch.cuda.is_available() and args.device == "cuda":
-            self.device = torch.device("cuda")
+        self.max_input_length = args.max_input_length
+        self.split_long_sequences = getattr(args, "split_long_sequences", False)
+        self.split_overlap = getattr(args, "split_overlap", 0)
+        self.force_split_length = getattr(args, "force_split_length", None)
+        self.chunks_mapping = {}  # Map original label to list of chunk labels
+        self.chunk_payload_lengths = {} # Map chunk label to its payload length
+        self.original_sequences = {} # Store original sequence for reference
+        if torch.cuda.is_available() and args.device.startswith("cuda"):
+            self.device = torch.device(args.device)
         else:
             self.device = torch.device("cpu")
         self.output_types = args.extract_embeddings
         self.discard_padding = args.discard_padding
-        self.flatten = args.flatten
+        self.streaming_output = args.streaming_output
+        if self.discard_padding and self.streaming_output:
+            logger.warning(
+                "Warning: --discard_padding is not compatible with --streaming_output. Streaming output will be disabled."
+            )
+            self.streaming_output = False
         self.return_embeddings = False
         self.return_contacts = False
         self.return_logits = False
@@ -71,12 +82,15 @@ class BaseEmbedder:
                 self.return_contacts = True
             if output_type == "logits":
                 self.return_logits = True
-        self.streaming_output = args.streaming_output
+        self.flatten = args.flatten
         self.num_workers = args.num_workers if self.streaming_output else 1
         self.max_in_flight = self.num_workers * 2
         self.flush_batches_after = args.flush_batches_after * 1024**2  # in bytes
         self.precision = args.precision
         # self.log_memory = args.log_memory # TODO implement memory logging
+        self.total_gpu_time = 0.0
+        self.total_backpressure_time = 0.0
+        self.total_io_enqueue_time = 0.0
 
         # Set up checkpoint directory for crash recovery
         self.checkpoint_dir = self.output_path
@@ -108,7 +122,7 @@ class BaseEmbedder:
             "output_dir": os.path.join(self.output_path, "logits"),
             "shape": (
                 self.num_sequences,  # type: ignore
-                self.max_length,
+                self.max_input_length,
             ),
         }
         self.mean_pooled = {
@@ -124,13 +138,13 @@ class BaseEmbedder:
             "shape": (
                 (
                     self.num_sequences,  # type: ignore
-                    self.max_length,
+                    self.max_input_length,
                     self.embedding_size,  # type: ignore
                 )
                 if not self.flatten
                 else (
                     self.num_sequences,  # type: ignore
-                    self.max_length * self.embedding_size,  # type: ignore
+                    self.max_input_length * self.embedding_size,  # type: ignore
                 )
             ),
         }
@@ -150,13 +164,13 @@ class BaseEmbedder:
             "shape": (
                 (
                     self.num_sequences,  # type: ignore
-                    self.max_length,
-                    self.max_length,
+                    self.max_input_length,
+                    self.max_input_length,
                 )
                 if not self.flatten
                 else (
                     self.num_sequences,  # type: ignore
-                    self.max_length**2,
+                    self.max_input_length**2,
                 )
             ),
         }
@@ -167,13 +181,13 @@ class BaseEmbedder:
             "shape": (
                 (
                     self.num_sequences,  # type: ignore
-                    self.max_length,
-                    self.max_length,
+                    self.max_input_length,
+                    self.max_input_length,
                 )
                 if not self.flatten
                 else (
                     self.num_sequences,  # type: ignore
-                    self.max_length**2,
+                    self.max_input_length**2,
                 )
             ),
         }
@@ -184,13 +198,13 @@ class BaseEmbedder:
             "shape": (
                 (
                     self.num_sequences,  # type: ignore
-                    self.max_length,
-                    self.max_length,
+                    self.max_input_length,
+                    self.max_input_length,
                 )
                 if not self.flatten
                 else (
                     self.num_sequences,  # type: ignore
-                    self.max_length**2,
+                    self.max_input_length**2,
                 )
             ),
         }
@@ -337,6 +351,7 @@ class BaseEmbedder:
             # Start centralized I/O dispatcher with checkpoint support
             self.io_dispatcher = MultiIODispatcher(
                 self.memmap_registry,
+                num_workers=self.num_workers,
                 flush_bytes_limit=self.flush_batches_after,
                 heavy_output_type="per_token",
                 checkpoint_dir=self.checkpoint_dir,
@@ -365,11 +380,13 @@ class BaseEmbedder:
                 pooling_mask = self._mask_special_tokens(
                     toks, self.special_tokens  # type: ignore
                 ).cpu()  # mask special tokens to avoid diluting signal when pooling embeddings
+                t0_gpu = time.time()
                 logits, representations, attention_matrices = self._safe_compute(
                     toks, attention_mask
                 )
                 torch.cuda.empty_cache()
-
+                self.total_gpu_time += time.time() - t0_gpu
+                
                 output_bundle = {
                     "logits": logits,
                     "attention_matrices": attention_matrices,
@@ -382,12 +399,21 @@ class BaseEmbedder:
                 }
                 if self.streaming_output:
                     # Apply backpressure if write queue is too full
+                    t0_bp = time.time()
+                    backpressure_triggered = False
                     while self.io_dispatcher.queue_fullness() > 0.6:
-                        logger.warning(
-                            "[embed] Backpressure: waiting for IOFlushWorker to catch up..."
-                        )
+                        if not backpressure_triggered:
+                            logger.warning(
+                                f"[embed] Backpressure: queue fullness {self.io_dispatcher.queue_fullness():.2f}. Waiting for IOFlushWorker to catch up..."
+                            )
+                            backpressure_triggered = True
                         time.sleep(0.05)
+                    if backpressure_triggered:
+                        self.total_backpressure_time += time.time() - t0_bp
+                
+                t0_io = time.time()
                 self._extract_batch(output_bundle)
+                self.total_io_enqueue_time += time.time() - t0_io
 
                 del logits, representations, attention_matrices
                 gc.collect()
@@ -398,10 +424,20 @@ class BaseEmbedder:
                 self.sequence_labels.extend(labels)
                 bar(len(toks))
 
+            if self.split_long_sequences and self.chunks_mapping:
+                self._reconstruct_chunks()
+
             if self.streaming_output:
                 self.io_dispatcher.stop()
 
             logger.info("Finished extracting embeddings")
+            logger.info(f"--- Profiling Results ---")
+            logger.info(f"Total GPU compute time: {self.total_gpu_time:.2f}s")
+            logger.info(f"Total Backpressure wait time: {self.total_backpressure_time:.2f}s")
+            logger.info(f"Total IO Enqueue time: {self.total_io_enqueue_time:.2f}s")
+            if self.total_gpu_time > 0:
+                overhead = (self.total_backpressure_time + self.total_io_enqueue_time) / self.total_gpu_time
+                logger.info(f"IO Overhead ratio: {overhead:.2f}x")
 
         # After successful completion, clean up the checkpoint file
         if self.streaming_output:
@@ -544,6 +580,7 @@ class BaseEmbedder:
         self,
         representations,
         batch_labels,
+        pooling_mask,
         offset,
     ):
         if not self.discard_padding:
@@ -567,20 +604,21 @@ class BaseEmbedder:
                     )
                 else:
                     self.per_token["output_data"][layer].extend(tensor)
-        else:  # TODO remove padding tokens
-            logger.warning("Feature not implemented yet")
-            pass
+        else:
             for layer in self.layers:  # type: ignore
                 if self.flatten:
                     self.per_token["output_data"][layer].extend(
                         [
-                            representations[layer][i].flatten(start_dim=1)
+                            representations[layer][i][pooling_mask[i]].flatten()
                             for i in range(len(batch_labels))
                         ]
                     )
                 else:
                     self.per_token["output_data"][layer].extend(
-                        [representations[layer][i] for i in range(len(batch_labels))]
+                        [
+                            representations[layer][i][pooling_mask[i]]
+                            for i in range(len(batch_labels))
+                        ]
                     )
 
     def _extract_attention_head(
@@ -709,6 +747,10 @@ class BaseEmbedder:
                 self.substring_pooled["output_data"][layer].extend(tensor)
 
     def _prepare_tensor(self, data_list, flatten):
+        if self.discard_padding:
+            # Handle variable-length sequences by returning an object array of numpy arrays
+            return np.array([t.numpy() for t in data_list], dtype=object)
+        
         tensor = torch.stack(data_list, dim=0)
         if flatten:
             tensor = tensor.flatten(start_dim=1)
@@ -795,3 +837,204 @@ class BaseEmbedder:
             self._cleanup_checkpoint()
 
         logger.info("Pipeline completed successfully!")
+    def _check_max_input_length(self):
+        """Check if max_input_length exceeds the model's allowed maximum length and handle splitting."""
+        max_allowed = self._get_model_max_allowed()
+        if max_allowed is None:
+            return
+
+        # Check if splitting is needed (either by explicit max_input_length or by reviewing sequences)
+        needs_splitting = False
+        if isinstance(self.max_input_length, int) and self.max_input_length > max_allowed:
+            needs_splitting = True
+        elif self.split_long_sequences:
+            # Check if any individual sequence exceeds the limit
+            if any(len(s) > (max_allowed - 2) for s in self.sequences.values()): # -2 for cls/eos
+                needs_splitting = True
+
+        if needs_splitting:
+            if self.split_long_sequences:
+                logger.info(
+                    f"Splitting sequences because they exceed model limit ({max_allowed})."
+                )
+                self._handle_sequence_splitting(max_allowed)
+            else:
+                logger.warning(
+                    f"Warning: Sequences exceed the model's maximum allowed length ({max_allowed})."
+                )
+
+    def _get_model_max_allowed(self):
+        """Estimate the maximum allowed sequence length for the model."""
+        if hasattr(self, "force_split_length") and self.force_split_length is not None:
+            return self.force_split_length
+
+        max_allowed = None
+        if hasattr(self, "model"):
+            if hasattr(self.model, "config") and hasattr(self.model.config, "max_position_embeddings"):
+                max_allowed = self.model.config.max_position_embeddings
+            elif hasattr(self, "tokenizer") and hasattr(self.tokenizer, "model_max_length"):
+                max_allowed = self.tokenizer.model_max_length
+            
+            if max_allowed is None and hasattr(self.model, "max_positions"):
+                max_allowed = getattr(self.model, "max_positions", None)
+                if callable(max_allowed):
+                    max_allowed = max_allowed()
+                elif hasattr(self.model, "max_positions") and isinstance(self.model.max_positions, int):
+                    max_allowed = self.model.max_positions
+                    
+            if max_allowed is None and hasattr(self.model, "config") and hasattr(self.model.config, "n_positions"):
+                max_allowed = self.model.config.n_positions
+        return max_allowed
+
+    def _handle_sequence_splitting(self, max_allowed):
+        """Split sequences that exceed max_allowed into chunks."""
+        new_sequences = {}
+        self.chunks_mapping = {}
+        special_tokens_count = 2 # cls + eos (conservative default)
+        chunk_size = max_allowed - special_tokens_count
+        overlap = self.split_overlap
+
+        if chunk_size <= overlap:
+            logger.error(f"chunk_size ({chunk_size}) must be greater than overlap ({overlap}). Disabling splitting.")
+            return
+
+        for label, sequence in self.sequences.items():
+            if len(sequence) <= chunk_size:
+                new_sequences[label] = sequence
+                continue
+
+            self.original_sequences[label] = sequence
+            chunks = []
+            start = 0
+            chunk_idx = 0
+            while start < len(sequence):
+                end = min(start + chunk_size, len(sequence))
+                chunk_payload = sequence[start:end]
+                chunk_label = f"{label}_chunk_{chunk_idx}"
+                
+                new_sequences[chunk_label] = chunk_payload
+                self.chunk_payload_lengths[chunk_label] = len(chunk_payload)
+                chunks.append(chunk_label)
+                
+                if end == len(sequence):
+                    break
+                start = end - overlap
+                chunk_idx += 1
+            
+            self.chunks_mapping[label] = chunks
+        
+        self.sequences = new_sequences
+        # Update num_sequences
+        if hasattr(self, 'num_sequences'):
+            self.num_sequences = len(self.sequences)
+        
+        # Update max_input_length to chunk size
+        self.max_input_length = chunk_size
+
+    def _reconstruct_chunks(self):
+        """Reconstruct original sequences from chunks in memory."""
+        if not self.chunks_mapping or self.streaming_output:
+            return
+
+        logger.info("Reconstructing original sequences from chunks...")
+        
+        label_to_idx = {label: i for i, label in enumerate(self.sequence_labels)}
+        
+        # For each output type, we need to rebuild the data
+        outputs_to_rebuild = []
+        rebuild_logits = self.return_logits and hasattr(self, "logits")
+        rebuild_per_token = self.return_embeddings and hasattr(self, "per_token")
+        rebuild_mean_pooled = self.return_embeddings and hasattr(self, "mean_pooled")
+        
+        if rebuild_logits: outputs_to_rebuild.append(self.logits)
+        if rebuild_per_token: outputs_to_rebuild.append(self.per_token)
+        if rebuild_mean_pooled: outputs_to_rebuild.append(self.mean_pooled)
+        
+        # Map original labels to their new index in the final list
+        new_sequence_labels = []
+        labels_processed = set()
+        
+        # Temporary storage for reconstructed results
+        reconstructed_data = {id(obj): {layer: [] for layer in self.layers} for obj in outputs_to_rebuild}
+
+        for label in self.sequence_labels:
+            # Find the original label
+            orig_label = label
+            is_chunk = False
+            for parent, chunks in self.chunks_mapping.items():
+                if label in chunks:
+                    orig_label = parent
+                    is_chunk = True
+                    break
+            
+            if orig_label in labels_processed:
+                continue
+            
+            labels_processed.add(orig_label)
+            new_sequence_labels.append(orig_label)
+            
+            if not is_chunk:
+                # Just copy the existing data
+                idx = label_to_idx[label]
+                for obj in outputs_to_rebuild:
+                    for layer in self.layers:
+                        reconstructed_data[id(obj)][layer].append(obj["output_data"][layer][idx])
+                continue
+            
+            # Reconstruct from chunks
+            chunk_labels = self.chunks_mapping[orig_label]
+            
+            # 1. Concatenate per-token and logits
+            if rebuild_per_token or rebuild_logits:
+                for obj, flag in [(self.per_token, rebuild_per_token), (self.logits, rebuild_logits)]:
+                    if flag:
+                        for layer in self.layers:
+                            parts = []
+                            for i, cl in enumerate(chunk_labels):
+                                idx = label_to_idx[cl]
+                                full_tensor = obj["output_data"][layer][idx]
+                                payload_len = self.chunk_payload_lengths[cl]
+                                
+                                # Identify indices for extraction
+                                start_idx = 1
+                                if i > 0:
+                                    start_idx += self.split_overlap
+                                
+                                end_idx = 1 + payload_len
+                                meat = full_tensor[start_idx:end_idx]
+
+                                
+                                if i == 0:
+                                    meat = torch.cat([full_tensor[0:1], meat], dim=0)
+
+                                if i == len(chunk_labels) - 1:
+                                    expected_unpadded_len = 1 + payload_len
+                                    # Safe bet: if there's no EOS, it's either padding or out of bounds. 
+                                    # To be robust during reconstruction of standard models, we should append if `add_special_tokens` was True and the tokenizer adds EOS.
+                                    # The simplest heuristic: the original tokenizer encoded "" into >1 token or it has an EOS token
+                                    eos_count = len(self.tokenizer.encode("", add_special_tokens=True)) - 1 if hasattr(self, "tokenizer") and hasattr(self.tokenizer, "encode") else 0
+                                    
+                                    if eos_count > 0:
+                                        appended = full_tensor[expected_unpadded_len : expected_unpadded_len + 1]
+                                        meat = torch.cat([meat, appended], dim=0)
+
+                                parts.append(meat)
+
+                            reconstructed = torch.cat(parts, dim=0)
+                            reconstructed_data[id(obj)][layer].append(reconstructed)
+
+            # 2. Handle Mean Pooled
+            if rebuild_mean_pooled:
+                for layer in self.layers:
+                    full_per_token = reconstructed_data[id(self.per_token)][layer][-1]
+                    reconstructed_mean = full_per_token.mean(0)
+                    reconstructed_data[id(self.mean_pooled)][layer].append(reconstructed_mean)
+
+        # Replace original data with reconstructed data
+        self.sequence_labels = new_sequence_labels
+        self.num_sequences = len(self.sequence_labels)
+        for obj in outputs_to_rebuild:
+            for layer in self.layers:
+                obj["output_data"][layer] = reconstructed_data[id(obj)][layer]
+        
+        logger.info(f"Reconstruction complete. Final sequence count: {self.num_sequences}")

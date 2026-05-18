@@ -43,11 +43,9 @@ setup(
     install_requires=[
         "torch>=1.9.0",
         "transformers>=4.20.0",
-        "fair-esm",
         "sentencepiece",
         "numpy",
         "protobuf",
-        "rjieba",
         "alive_progress",
     ],
     entry_points={
