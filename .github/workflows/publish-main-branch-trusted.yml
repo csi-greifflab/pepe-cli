@@ -87,20 +87,24 @@ jobs:
     - name: Wait for package availability
       run: |
         echo "Waiting for package to be available on PyPI..."
-        sleep 60  # PyPI usually takes a bit longer than TestPyPI
-    
+        sleep 120  # PyPI propagation can take up to 2 minutes
+
     - name: Test installation and functionality
       run: |
         PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
         MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
         CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
-        
+
         # Create a fresh virtual environment for testing
         python3 -m venv test_env
         source test_env/bin/activate
-        
-        # Install the package from PyPI
-        pip install "$PACKAGE_NAME==$CURRENT_VERSION"
+
+        # Install with retries to handle PyPI propagation delay
+        for i in 1 2 3 4 5; do
+          pip install "$PACKAGE_NAME==$CURRENT_VERSION" && break
+          echo "Attempt $i failed, retrying in 30s..."
+          sleep 30
+        done
         
         # Verify installation
         pip list | grep -i pepe
