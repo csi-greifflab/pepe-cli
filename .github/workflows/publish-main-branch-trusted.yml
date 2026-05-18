@@ -190,6 +190,8 @@ jobs:
       - name: Build Conda Package
         shell: bash -l {0}
         run: |
+          export GIT_DESCRIBE_TAG=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
+          echo "Building conda package version: $GIT_DESCRIBE_TAG"
           conda-build .github/conda --output-folder dist/conda --channel pytorch --channel conda-forge --channel defaults
 
       - name: Upload to Anaconda
