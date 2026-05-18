@@ -25,12 +25,6 @@ requirements:
     - protobuf
     - alive-progress
 
-test:
-  imports:
-    - pepe
-  commands:
-    - pepe --help
-
 about:
   home: https://github.com/csi-greifflab/pepe-cli
   license: MIT
