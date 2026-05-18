@@ -1,6 +1,10 @@
 import logging
 import sys
-from pepe.api import embed  # Exported to top-level
+
+try:
+    from pepe.api import embed  # Exported to top-level; requires torch at runtime
+except ImportError:
+    pass
 
 # Package metadata - single source of truth
 __version__ = "1.0.4.dev1"
