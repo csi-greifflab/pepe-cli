@@ -73,6 +73,7 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         verbose: true
+        skip_existing: true
     
     - name: Output installation command
       run: |
