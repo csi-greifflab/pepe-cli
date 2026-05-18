@@ -33,10 +33,10 @@ jobs:
       run: |
         # Get current timestamp for unique version
         TIMESTAMP=$(date +%Y%m%d%H%M%S)
-        # Get current version and package name from __init__.py
-        CURRENT_VERSION=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __version__; print(__version__)")
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
-        MODULE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __module_name__; print(__module_name__)")
+        # Extract metadata directly from __init__.py (avoids importing package deps like torch)
+        CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
+        MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
         # Create test version by replacing -dev with .dev and adding timestamp
         TEST_VERSION=$(echo $CURRENT_VERSION | sed -E "s/(-dev|\.dev[0-9]*)$/.dev${TIMESTAMP}/")
         
@@ -61,8 +61,7 @@ jobs:
     
     - name: Output installation command
       run: |
-        # Get package name from __init__.py
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
         echo "Package published to TestPyPI!"
         echo "To install the test version, run:"
         echo "pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple \"$PACKAGE_NAME\""
@@ -74,9 +73,8 @@ jobs:
     
     - name: Test installation and functionality
       run: |
-        # Get package and module names from __init__.py
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
-        MODULE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __module_name__; print(__module_name__)")
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
+        MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
         
         # Create a fresh virtual environment for testing
         python3 -m venv test_env

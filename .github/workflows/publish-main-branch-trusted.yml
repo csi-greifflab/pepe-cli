@@ -36,10 +36,10 @@ jobs:
     
     - name: Verify version for main branch
       run: |
-        # Get current version and package name from __init__.py
-        CURRENT_VERSION=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __version__; print(__version__)")
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
-        MODULE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __module_name__; print(__module_name__)")
+        # Extract metadata directly from __init__.py (avoids importing package deps like torch)
+        CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
+        MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
         
         # Check if version contains -dev or -test (should not be in main branch)
         if [[ "$CURRENT_VERSION" == *"-dev"* ]] || [[ "$CURRENT_VERSION" == *"-test"* ]]; then
@@ -76,9 +76,8 @@ jobs:
     
     - name: Output installation command
       run: |
-        # Get package name from __init__.py
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
-        CURRENT_VERSION=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __version__; print(__version__)")
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
+        CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
         echo "🎉 Package published to PyPI!"
         echo "To install the release version, run:"
         echo "pip install \"$PACKAGE_NAME==$CURRENT_VERSION\""
@@ -92,10 +91,9 @@ jobs:
     
     - name: Test installation and functionality
       run: |
-        # Get package and module names from __init__.py
-        PACKAGE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __package_name__; print(__package_name__)")
-        MODULE_NAME=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __module_name__; print(__module_name__)")
-        CURRENT_VERSION=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __version__; print(__version__)")
+        PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
+        MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
+        CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
         
         # Create a fresh virtual environment for testing
         python3 -m venv test_env
@@ -142,7 +140,7 @@ jobs:
     - name: Get version for release
       id: get_version
       run: |
-        VERSION=$(python3 -c "import sys; sys.path.insert(0, 'src'); from pepe import __version__; print(__version__)")
+        VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
         echo "version=$VERSION" >> $GITHUB_OUTPUT
     
     - name: Create GitHub Release
