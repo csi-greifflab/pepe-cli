@@ -123,7 +123,11 @@ jobs:
         env:
           GIT_DESCRIBE_TAG: ${{ needs.build-and-publish-test.outputs.test_version }}
         run: |
-          conda build .github/conda --output-folder dist/conda
+          # Sync __init__.py version to match the conda recipe version
+          CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
+          sed -i "s/__version__ = \"$CURRENT_VERSION\"/__version__ = \"$GIT_DESCRIBE_TAG\"/" src/pepe/__init__.py
+          echo "Updated version to $GIT_DESCRIBE_TAG for conda build"
+          conda build .github/conda --output-folder dist/conda --channel pytorch --channel conda-forge --channel defaults
 
       - name: Upload to Anaconda (Test Label)
         shell: bash -l {0}
