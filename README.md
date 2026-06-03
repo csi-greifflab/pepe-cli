@@ -2,6 +2,12 @@
 
 PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings and attention matrices from protein sequences using pre-trained models. This tool supports various configurations for extracting embeddings and attention matrices, including options for handling CDR3 sequences. Currently implemented models are ESM2 from the 2023 paper ["Evolutionary-scale prediction of atomic-level protein structure with a language model"](https://science.org/doi/10.1126/science.ade2574) and AntiBERTa2-CSSP from the 2023 conference paper ["Enhancing Antibody Language Models with Structural Information"](https://www.mlsb.io/papers_2023/Enhancing_Antibody_Language_Models_with_Structural_Information.pdf). PEPE also supports custom PLMs from local files or from Huggingface Hub addresses. 
 
+### Citation
+> **PEPE: Scalable extraction of multi-modal protein language model representations**
+> Jahn Zhong, Niccolò Cardente, Geir Kjetil Sandve, Habib Bashour, Maria Francesca Abbate, Victor Greiff
+> *bioRxiv* (2025) 
+> [DOI: 10.1101/2025.10.13.680902](https://doi.org/10.1101/2025.10.13.680902)
+
 ## Quick start
 
 1. Install PEPE \
