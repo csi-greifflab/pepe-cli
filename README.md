@@ -5,7 +5,7 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
 ### Citation
 > **PEPE: Scalable extraction of multi-modal protein language model representations**
 > Jahn Zhong, Niccolò Cardente, Geir Kjetil Sandve, Habib Bashour, Maria Francesca Abbate, Victor Greiff
-> *bioRxiv* (2025) 
+> *bioRxiv* (2026) 
 > [DOI: 10.1101/2025.10.13.680902](https://doi.org/10.1101/2025.10.13.680902)
 
 ## Quick start
