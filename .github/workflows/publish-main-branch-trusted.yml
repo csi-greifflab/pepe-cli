@@ -124,7 +124,7 @@ jobs:
         # Run unit tests that don't require model downloads
         echo "Running unit tests..."
         pip install pytest
-        python3 -m pytest src/tests/test_device_logic.py -v
+        python3 -m pytest src/tests/test_device_logic.py src/tests/test_parse_arguments.py -v
 
         # Clean up
         deactivate
