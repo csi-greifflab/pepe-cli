@@ -17,6 +17,13 @@ def _get_esm2_embedder():
     return ESM2Embedder
 
 
+def _get_esmc_embedder():
+    """Lazy import of ESMC embedder (Biohub transformers fork)."""
+    from pepe.embedders.huggingface_embedder import ESMCEmbedder
+
+    return ESMCEmbedder
+
+
 def _get_huggingface_embedders():
     """Lazy import of HuggingFace embedders to avoid loading heavy dependencies."""
     from pepe.embedders.huggingface_embedder import T5Embedder, Antiberta2Embedder
@@ -62,6 +69,8 @@ def select_model(model_name):
                 return Antiberta2Embedder
             elif model_type in ["esm"]:
                 return _get_esm2_embedder()
+            elif model_type in ["esmc"]:
+                return _get_esmc_embedder()
             elif model_type in ["bert"]:
                 # For BERT-like models, we could potentially use a generic embedder
                 # but for now, suggest using CustomEmbedder or creating a specific one
@@ -75,16 +84,19 @@ def select_model(model_name):
                     f"Model architecture '{model_type}' not yet supported for custom Hugging Face models"
                 )
         except Exception as e:
-            # Check if it's a Keras/TensorFlow model
             error_msg = str(e)
+            if "esmc" in model_name.lower() or "esmc" in error_msg.lower():
+                raise ValueError(
+                    f"ESMC models require the Biohub transformers fork (ESM1 fair-esm is unaffected). "
+                    f"Install with: pip install pepe-cli[esmc]"
+                ) from e
             if "Unrecognized model" in error_msg or "model_type" in error_msg:
                 raise ValueError(
-                    f"Model {model_name} appears to be a Keras/TensorFlow model or has an unsupported architecture. EmbedAIRR currently supports PyTorch models only. Consider using a PyTorch version or converting the model."
-                )
-            else:
-                raise ValueError(
-                    f"Could not determine model architecture for {model_name}: {e}"
-                )
+                    f"Model {model_name} appears to be a Keras/TensorFlow model or has an unsupported architecture. PEPE currently supports PyTorch models only. Consider using a PyTorch version or converting the model."
+                ) from e
+            raise ValueError(
+                f"Could not determine model architecture for {model_name}: {e}"
+            ) from e
     else:
         raise ValueError(f"Model {model_name} not supported")
 
@@ -116,6 +128,10 @@ supported_models = [
     "Rostlab/ProstT5",
     "alchemab/antiberta2-cssp",
     "alchemab/antiberta2",
+    # ESMC models (requires pip install pepe-cli[esmc])
+    "biohub/ESMC-300M",
+    "biohub/ESMC-600M",
+    "biohub/ESMC-6B",
     # Custom models examples:
     # - PyTorch models: "/path/to/model.pt", "/path/to/model_directory/", "custom:/path/to/model.pt"
     # - Hugging Face models: "username/model-name", "./local_hf_model"

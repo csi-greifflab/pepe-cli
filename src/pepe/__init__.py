@@ -7,7 +7,7 @@ except ImportError:
     pass
 
 # Package metadata - single source of truth
-__version__ = "1.1.2"
+__version__ = "1.2.0"
 __package_name__ = "pepe-cli"
 __module_name__ = "pepe"
 __author__ = "Jahn Zhong"

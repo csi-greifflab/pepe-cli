@@ -48,6 +48,12 @@ setup(
         "protobuf",
         "alive_progress",
     ],
+    extras_require={
+        "esmc": [
+            "transformers @ git+https://github.com/Biohub/transformers.git@main",
+            "accelerate>=0.26.0",
+        ],
+    },
     entry_points={
         "console_scripts": [
             f"pepe = {__module_name__}.__main__:main",

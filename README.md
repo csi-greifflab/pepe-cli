@@ -25,6 +25,10 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     cd pepe-cli
     pip install .
     ```
+    For ESMC models (e.g. `biohub/ESMC-300M`), install the optional Biohub transformers fork. This does not affect ESM1 (`fair-esm`) support:
+    ```sh
+    pip install pepe-cli[esmc]
+    ```
 2. Run the embedding script:\
     Extract mean pooled embeddings from protein amino acid sequences in FASTA file:
     ```sh
@@ -188,6 +192,10 @@ results = pepe.embed(
     - RoFormer models
         - alchemab/antiberta2-cssp
         - alchemab/antiberta2
+    - ESMC models (requires `pip install pepe-cli[esmc]`)
+        - biohub/ESMC-300M
+        - biohub/ESMC-600M
+        - biohub/ESMC-6B
     - Custom Hugging Face models
         - Any compatible model from Hugging Face Hub: `username/model-name`
         - Private models with authentication
@@ -202,6 +210,7 @@ results = pepe.embed(
 ### Required Arguments
 - **`--model_name`** (str): Name of model or link to model. Choose from [List of supported models](../README.md#list-of-supported-models) or use custom models:
   - ESM models: `esm2_t33_650M_UR50D`
+  - ESMC models: `biohub/ESMC-300M` (requires `pip install pepe-cli[esmc]`)
   - Hugging Face models: `username/model-name`
   - Custom PyTorch models: `/path/to/model.pt` or `/path/to/model_directory/`
   - Local HF models: `/path/to/local_hf_directory/`

@@ -147,13 +147,17 @@ class HuggingFaceDataset(SequenceDictDataset):
         tokenizer,
         max_length,
         add_special_tokens=True,
+        gapped_sequences=True,
     ):
         super().__init__(sequences, substring_dict, context, bracket_type)
-        
+        self.gapped_sequences = gapped_sequences
+
         self.encoded_data = self._encode_sequences(
-            self.data, tokenizer, max_length, add_special_tokens, gapped_sequences = True
+            self.data, tokenizer, max_length, add_special_tokens, gapped_sequences
         )  # (label, seq, toks, attention_mask)
-        self.pad_token_id = tokenizer.pad_token_type_id
+        self.pad_token_id = (
+            getattr(tokenizer, "pad_token_type_id", None) or tokenizer.pad_token_id
+        )
         if self.substring_dict:
             logger.info("Tokenizing substrings...")
             self.encoded_substring_data = self._encode_sequences(
@@ -161,7 +165,7 @@ class HuggingFaceDataset(SequenceDictDataset):
                 tokenizer,
                 "max_length",
                 add_special_tokens=False,
-                gapped_sequences=True
+                gapped_sequences=gapped_sequences,
             )  # (label, seq, toks, attention_mask)
             self.substring_masks = self._get_substring_masks()
 
