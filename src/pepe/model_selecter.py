@@ -10,6 +10,13 @@ def _get_esm_embedder():
     return ESMEmbedder
 
 
+def _get_esm2_embedder():
+    """Lazy import of ESM-2 embedder (HuggingFace transformers)."""
+    from pepe.embedders.huggingface_embedder import ESM2Embedder
+
+    return ESM2Embedder
+
+
 def _get_huggingface_embedders():
     """Lazy import of HuggingFace embedders to avoid loading heavy dependencies."""
     from pepe.embedders.huggingface_embedder import T5Embedder, Antiberta2Embedder
@@ -19,7 +26,7 @@ def _get_huggingface_embedders():
 
 def select_model(model_name):
     if "esm2" in model_name.lower():
-        return _get_esm_embedder()
+        return _get_esm2_embedder()
     elif "esm1" in model_name.lower():
         return _get_esm_embedder()
     # elif "antiberta2" in model_name.lower() and model_name.startswith("alchemab"):
@@ -53,6 +60,8 @@ def select_model(model_name):
             elif model_type in ["roformer"]:
                 T5Embedder, Antiberta2Embedder = _get_huggingface_embedders()
                 return Antiberta2Embedder
+            elif model_type in ["esm"]:
+                return _get_esm2_embedder()
             elif model_type in ["bert"]:
                 # For BERT-like models, we could potentially use a generic embedder
                 # but for now, suggest using CustomEmbedder or creating a specific one
