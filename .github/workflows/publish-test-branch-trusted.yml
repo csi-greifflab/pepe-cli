@@ -16,10 +16,10 @@ jobs:
       test_version: ${{ steps.version_step.outputs.test_version }}
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.10'
     
@@ -37,8 +37,10 @@ jobs:
         CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
         PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
         MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
-        # Create test version by replacing -dev with .dev and adding timestamp
-        TEST_VERSION=$(echo $CURRENT_VERSION | sed -E "s/(-dev|\.dev[0-9]*)$/.dev${TIMESTAMP}/")
+        # Create a unique TestPyPI version by stripping any existing dev suffix,
+        # then appending .dev{timestamp} (TestPyPI rejects re-uploading the same version).
+        BASE_VERSION=$(echo "$CURRENT_VERSION" | sed -E 's/(-dev|\.dev[0-9]*)$//')
+        TEST_VERSION="${BASE_VERSION}.dev${TIMESTAMP}"
         
         # Output version for other jobs
         echo "test_version=$TEST_VERSION" >> $GITHUB_OUTPUT
@@ -104,10 +106,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-publish-test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       
       - name: Set up Conda
-        uses: conda-incubator/setup-miniconda@v3
+        uses: conda-incubator/setup-miniconda@v4
         with:
           auto-update-conda: true
           python-version: '3.10'

@@ -15,6 +15,7 @@ def _import_transformers():
             RoFormerSinusoidalPositionalEmbedding,
         )
         from transformers import AutoModel, AutoTokenizer, AutoModelForCausalLM
+        from transformers import AutoModelForMaskedLM
 
         return (
             T5EncoderModel,
@@ -25,6 +26,7 @@ def _import_transformers():
             AutoModel,
             AutoTokenizer,
             AutoModelForCausalLM,
+            AutoModelForMaskedLM,
         )
     except ImportError as e:
         logger.error(f"Failed to import transformers: {e}")
@@ -51,20 +53,13 @@ class HuggingfaceEmbedder(BaseEmbedder):
 
     def _load_layers(self, layers):
         """Check if the specified representation layers are valid."""
+        num_layers = self.num_layers  # type: ignore
+        if layers is None:
+            return list(range(1, num_layers + 1))
         if not layers:
-            layers = list(range(1, self.model.config.num_hidden_layers + 1))  # type: ignore
-            return layers
-        assert all(
-            -(self.model.config.num_hidden_layers + 1)  # type: ignore
-            <= i
-            <= self.model.config.num_hidden_layers  # type: ignore
-            for i in layers
-        )
-        layers = [
-            (i + self.model.config.num_hidden_layers + 1)  # type: ignore
-            % (self.model.config.num_hidden_layers + 1)  # type: ignore
-            for i in layers
-        ]
+            layers = [-1]
+        assert all(-(num_layers + 1) <= i <= num_layers for i in layers)
+        layers = [(i + num_layers + 1) % (num_layers + 1) for i in layers]
         return layers
 
     def _load_data(self, sequences, substring_dict, bracket_type):
@@ -116,14 +111,18 @@ class HuggingfaceEmbedder(BaseEmbedder):
         else:
             attention_matrices = None
         if return_embeddings:
-            representations = {
-                layer: outputs.hidden_states[layer]
-                .to(
-                    self._precision_to_dtype(self.precision, "torch"),
-                )
-                .cpu()
-                for layer in self.layers  # type: ignore
-            }
+            dtype = self._precision_to_dtype(self.precision, "torch")
+            hidden_states = outputs.hidden_states
+            if isinstance(hidden_states, torch.Tensor):
+                representations = {
+                    layer: hidden_states[layer].to(dtype).cpu()
+                    for layer in self.layers  # type: ignore
+                }
+            else:
+                representations = {
+                    layer: hidden_states[layer].to(dtype).cpu()
+                    for layer in self.layers  # type: ignore
+                }
             torch.cuda.empty_cache()
         else:
             representations = None
@@ -182,6 +181,7 @@ class Antiberta2Embedder(HuggingfaceEmbedder):
             AutoModel,
             AutoTokenizer,
             AutoModelForCausalLM,
+            AutoModelForMaskedLM,
         ) = _import_transformers()
 
         tokenizer = RoFormerTokenizer.from_pretrained(model_link, use_fast=True)
@@ -246,6 +246,7 @@ class T5Embedder(HuggingfaceEmbedder):
             AutoModel,
             AutoTokenizer,
             AutoModelForCausalLM,
+            AutoModelForMaskedLM,
         ) = _import_transformers()
 
         tokenizer = T5Tokenizer.from_pretrained(model_link, use_fast=True)
@@ -254,6 +255,272 @@ class T5Embedder(HuggingfaceEmbedder):
         num_heads = model.config.num_heads
         num_layers = model.config.num_layers
         embedding_size = model.config.hidden_size
+        return model, tokenizer, num_heads, num_layers, embedding_size
+
+
+def _resolve_esm2_model_link(model_name):
+    if "/" in model_name:
+        return model_name
+    return f"facebook/{model_name}"
+
+
+class ESM2Embedder(HuggingfaceEmbedder):
+    """ESM-2 embedder using HuggingFace transformers instead of fair-esm."""
+
+    def __init__(self, args):
+        BaseEmbedder.__init__(self, args)
+        self.sequences = pepe.utils.fasta_to_dict(args.fasta_path)
+        self.num_sequences = len(self.sequences)
+        (
+            self.model,
+            self.tokenizer,
+            self.num_heads,
+            self.num_layers,
+            self.embedding_size,
+        ) = self._initialize_model(self.model_name)
+        self.valid_tokens = self._get_valid_tokens()
+        self.bracket_type = pepe.utils.get_bracket_type(self.tokenizer)
+        self._check_max_input_length()
+        pepe.utils.check_input_tokens(
+            self.valid_tokens,
+            self.sequences,
+            self.model_name,
+            split_long_sequences=self.split_long_sequences,
+        )
+        self.special_tokens = torch.tensor(
+            self.tokenizer.all_special_ids, device=self.device, dtype=torch.int8
+        )
+        self.layers = self._load_layers(self.layers)
+        self.data_loader, self.max_input_length = self._load_data(
+            self.sequences, self.substring_dict, self.bracket_type
+        )
+        self._set_output_objects()
+
+    def _get_valid_tokens(self):
+        return {tok for tok in self.tokenizer.get_vocab().keys() if len(tok) == 1}
+
+    def _load_data(self, sequences, substring_dict, bracket_type):
+        dataset = pepe.utils.HuggingFaceDataset(
+            sequences,
+            substring_dict,
+            self.context,
+            bracket_type,
+            self.tokenizer,
+            self.max_input_length,
+            add_special_tokens=not self.disable_special_tokens,
+        )
+        dataset.pad_token_id = self.tokenizer.pad_token_id
+        logger.info("Batching sequences...")
+        batch_sampler = pepe.utils.TokenBudgetBatchSampler(
+            dataset=dataset, token_budget=self.batch_size
+        )
+        data_loader = torch.utils.data.DataLoader(
+            dataset, batch_sampler=batch_sampler, collate_fn=dataset.safe_collate
+        )
+        max_length = dataset.get_max_encoded_length()
+        logger.info("Finished tokenizing and batching sequences")
+        return data_loader, max_length
+
+    def _initialize_model(self, model_name):
+        model_link = _resolve_esm2_model_link(model_name)
+        if torch.cuda.is_available() and self.device.type == "cuda":
+            device = torch.device("cuda")
+            logger.info("Transferred model to GPU")
+        else:
+            device = torch.device("cpu")
+            logger.info("No GPU available, using CPU")
+
+        (
+            T5EncoderModel,
+            T5Tokenizer,
+            RoFormerTokenizer,
+            RoFormerModel,
+            RoFormerSinusoidalPositionalEmbedding,
+            AutoModel,
+            AutoTokenizer,
+            AutoModelForCausalLM,
+            AutoModelForMaskedLM,
+        ) = _import_transformers()
+
+        logger.info(f"Loading ESM-2 model from HuggingFace: {model_link}")
+        tokenizer = AutoTokenizer.from_pretrained(model_link)
+        model_kwargs = {}
+        if self.return_contacts:
+            model_kwargs["attn_implementation"] = "eager"
+
+        if self.return_logits:
+            model = AutoModelForMaskedLM.from_pretrained(
+                model_link, **model_kwargs
+            ).to(device)
+        else:
+            model = AutoModel.from_pretrained(model_link, **model_kwargs).to(device)
+        model.eval()
+
+        config = model.config
+        num_heads = config.num_attention_heads
+        num_layers = config.num_hidden_layers
+        embedding_size = config.hidden_size
+        return model, tokenizer, num_heads, num_layers, embedding_size
+
+    def _compute_outputs(
+        self,
+        model,
+        toks,
+        attention_mask,
+        return_embeddings,
+        return_contacts,
+        return_logits=False,
+    ):
+        outputs = model(
+            input_ids=toks,
+            attention_mask=attention_mask,
+            output_hidden_states=return_embeddings,
+            output_attentions=return_contacts,
+        )
+        if return_logits:
+            logits = (
+                outputs.logits
+                .to(dtype=self._precision_to_dtype(self.precision, "torch"))
+                .permute(2, 0, 1)
+                .cpu()
+            )
+            torch.cuda.empty_cache()
+        else:
+            logits = None
+
+        if return_contacts:
+            attention_matrices = (
+                torch.stack(outputs.attentions)  # type: ignore
+                .to(self._precision_to_dtype(self.precision, "torch"))  # type: ignore
+                .cpu()
+            )
+            torch.cuda.empty_cache()
+        else:
+            attention_matrices = None
+
+        if return_embeddings:
+            representations = {
+                layer: outputs.hidden_states[layer]
+                .to(self._precision_to_dtype(self.precision, "torch"))
+                .cpu()
+                for layer in self.layers  # type: ignore
+            }
+            torch.cuda.empty_cache()
+        else:
+            representations = None
+
+        return logits, representations, attention_matrices
+
+
+def _get_config_attr(config, *names, default=None):
+    for name in names:
+        if hasattr(config, name):
+            return getattr(config, name)
+    return default
+
+
+class ESMCEmbedder(HuggingfaceEmbedder):
+    """ESMC embedder using Biohub transformers fork (model_type esmc)."""
+
+    def __init__(self, args):
+        BaseEmbedder.__init__(self, args)
+        self.sequences = pepe.utils.fasta_to_dict(args.fasta_path)
+        self.num_sequences = len(self.sequences)
+        (
+            self.model,
+            self.tokenizer,
+            self.num_heads,
+            self.num_layers,
+            self.embedding_size,
+        ) = self._initialize_model(self.model_link)
+        self.valid_tokens = self._get_valid_tokens()
+        self.bracket_type = pepe.utils.get_bracket_type(self.tokenizer)
+        self._check_max_input_length()
+        pepe.utils.check_input_tokens(
+            self.valid_tokens,
+            self.sequences,
+            self.model_name,
+            split_long_sequences=self.split_long_sequences,
+        )
+        self.special_tokens = torch.tensor(
+            self.tokenizer.all_special_ids, device=self.device, dtype=torch.int8
+        )
+        self.layers = self._load_layers(self.layers)
+        self.data_loader, self.max_input_length = self._load_data(
+            self.sequences, self.substring_dict, self.bracket_type
+        )
+        self._set_output_objects()
+
+    def _get_valid_tokens(self):
+        return {tok for tok in self.tokenizer.get_vocab().keys() if len(tok) == 1}
+
+    def _load_data(self, sequences, substring_dict, bracket_type):
+        dataset = pepe.utils.HuggingFaceDataset(
+            sequences,
+            substring_dict,
+            self.context,
+            bracket_type,
+            self.tokenizer,
+            self.max_input_length,
+            add_special_tokens=not self.disable_special_tokens,
+            gapped_sequences=False,
+        )
+        dataset.pad_token_id = self.tokenizer.pad_token_id
+        logger.info("Batching sequences...")
+        batch_sampler = pepe.utils.TokenBudgetBatchSampler(
+            dataset=dataset, token_budget=self.batch_size
+        )
+        data_loader = torch.utils.data.DataLoader(
+            dataset, batch_sampler=batch_sampler, collate_fn=dataset.safe_collate
+        )
+        max_length = dataset.get_max_encoded_length()
+        logger.info("Finished tokenizing and batching sequences")
+        return data_loader, max_length
+
+    def _initialize_model(self, model_link):
+        if torch.cuda.is_available() and self.device.type == "cuda":
+            device = torch.device("cuda")
+            logger.info("Transferred model to GPU")
+        else:
+            device = torch.device("cpu")
+            logger.info("No GPU available, using CPU")
+
+        (
+            T5EncoderModel,
+            T5Tokenizer,
+            RoFormerTokenizer,
+            RoFormerModel,
+            RoFormerSinusoidalPositionalEmbedding,
+            AutoModel,
+            AutoTokenizer,
+            AutoModelForCausalLM,
+            AutoModelForMaskedLM,
+        ) = _import_transformers()
+
+        logger.info(f"Loading ESMC model from HuggingFace: {model_link}")
+        tokenizer = AutoTokenizer.from_pretrained(model_link)
+        model_kwargs = {}
+        if self.return_contacts:
+            model_kwargs["attn_implementation"] = "eager"
+
+        if self.return_logits:
+            model = AutoModelForMaskedLM.from_pretrained(
+                model_link, **model_kwargs
+            ).to(device)
+        else:
+            model = AutoModel.from_pretrained(model_link, **model_kwargs).to(device)
+        model.eval()
+
+        config = model.config
+        num_heads = _get_config_attr(
+            config, "num_attention_heads", "n_heads", "num_heads"
+        )
+        num_layers = _get_config_attr(
+            config, "num_hidden_layers", "n_layers", "num_layers"
+        )
+        embedding_size = _get_config_attr(
+            config, "hidden_size", "d_model", "embed_dim"
+        )
         return model, tokenizer, num_heads, num_layers, embedding_size
 
 
@@ -320,6 +587,7 @@ class GenericHuggingFaceEmbedder(HuggingfaceEmbedder):
             AutoModel,
             AutoTokenizer,
             AutoModelForCausalLM,
+            AutoModelForMaskedLM,
         ) = _import_transformers()
 
         # For models that commonly require custom code, use trust_remote_code=True immediately

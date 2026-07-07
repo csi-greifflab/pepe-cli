@@ -10,13 +10,27 @@ pepe \
 --output_path "src/tests/test_files/test_output"
 ```
 ## Models hosted on Huggingface
-The user can also choose from any PLM with the same input and output formats as the supported models hosted on    Huggingface Hub:
+The user can also choose from PLMs hosted on Huggingface Hub by passing the repository path as `--model_name`:
 ```sh
 pepe \
     --experiment_name "test" \
     --model_name "alchemab/antiberta2-cssp" \ # pass the remote path to a Huggingface model
     --fasta_path "src/tests/test_files/test.fasta" \
     --output_path "src/tests/test_files/test_output"
+```
+
+### ESMC models
+ESMC (ESM Cambrian) is a distinct architecture from ESM2. It requires Biohub's transformers fork, which coexists with ESM1's `fair-esm` package:
+```sh
+pip install git+https://github.com/Biohub/transformers.git@main
+pepe \
+    --experiment_name "esmc_test" \
+    --model_name "biohub/ESMC-300M" \
+    --fasta_path "src/tests/test_files/test.fasta" \
+    --output_path "src/tests/test_files/test_output" \
+    --extract_embeddings mean_pooled \
+    --device cpu \
+    --layers -1
 ```
 
 ## Custom models

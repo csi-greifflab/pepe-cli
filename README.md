@@ -10,7 +10,8 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
 
 ## Quick start
 
-1. Install PEPE \
+1. Install PEPE
+
     From PyPI:    
     ```sh
     pip install pepe-cli
@@ -25,7 +26,13 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     cd pepe-cli
     pip install .
     ```
-2. Run the embedding script:\
+
+2. *(Optional)* For ESMC models (e.g. `biohub/ESMC-300M`), install Biohub's transformers fork:
+    ```sh
+    pip install git+https://github.com/Biohub/transformers.git@main
+    ```
+
+3. Extract embeddings:\
     Extract mean pooled embeddings from protein amino acid sequences in FASTA file:
     ```sh
     pepe --experiment_name <optional_string> --fasta_path <file_path> --output_path <directory> --model_name <model_name>
@@ -35,7 +42,7 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
 
 PEPE can also be used as a Python library. This allows for programmatic access to protein embeddings without using the command-line interface.
 
-1. Install PEPE (see [Quick start with CLI](#quick-start-with-cli) for details).
+1. Install PEPE (see above for details).
 2. Use the `pepe.embed()` function in your script:
 
 ```python
@@ -188,6 +195,10 @@ results = pepe.embed(
     - RoFormer models
         - alchemab/antiberta2-cssp
         - alchemab/antiberta2
+    - ESMC models (requires Biohub transformers fork; see install instructions above)
+        - biohub/ESMC-300M
+        - biohub/ESMC-600M
+        - biohub/ESMC-6B
     - Custom Hugging Face models
         - Any compatible model from Hugging Face Hub: `username/model-name`
         - Private models with authentication
@@ -202,6 +213,7 @@ results = pepe.embed(
 ### Required Arguments
 - **`--model_name`** (str): Name of model or link to model. Choose from [List of supported models](../README.md#list-of-supported-models) or use custom models:
   - ESM models: `esm2_t33_650M_UR50D`
+  - ESMC models: `biohub/ESMC-300M` (requires Biohub transformers fork; see Quick start)
   - Hugging Face models: `username/model-name`
   - Custom PyTorch models: `/path/to/model.pt` or `/path/to/model_directory/`
   - Local HF models: `/path/to/local_hf_directory/`

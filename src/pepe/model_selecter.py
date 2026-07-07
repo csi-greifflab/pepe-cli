@@ -10,6 +10,20 @@ def _get_esm_embedder():
     return ESMEmbedder
 
 
+def _get_esm2_embedder():
+    """Lazy import of ESM-2 embedder (HuggingFace transformers)."""
+    from pepe.embedders.huggingface_embedder import ESM2Embedder
+
+    return ESM2Embedder
+
+
+def _get_esmc_embedder():
+    """Lazy import of ESMC embedder (Biohub transformers fork)."""
+    from pepe.embedders.huggingface_embedder import ESMCEmbedder
+
+    return ESMCEmbedder
+
+
 def _get_huggingface_embedders():
     """Lazy import of HuggingFace embedders to avoid loading heavy dependencies."""
     from pepe.embedders.huggingface_embedder import T5Embedder, Antiberta2Embedder
@@ -17,18 +31,18 @@ def _get_huggingface_embedders():
     return T5Embedder, Antiberta2Embedder
 
 
+def _get_generic_hf_embedder():
+    """Lazy import of the generic AutoModel-based HuggingFace fallback embedder."""
+    from pepe.embedders.huggingface_embedder import GenericHuggingFaceEmbedder
+
+    return GenericHuggingFaceEmbedder
+
+
 def select_model(model_name):
-    if "esm2" in model_name.lower():
-        return _get_esm_embedder()
-    elif "esm1" in model_name.lower():
-        return _get_esm_embedder()
-    # elif "antiberta2" in model_name.lower() and model_name.startswith("alchemab"):
-    #    T5Embedder, Antiberta2Embedder = _get_huggingface_embedders()
-    #    return Antiberta2Embedder
-    # elif "t5" in model_name.lower() and model_name.startswith("Rostlab"):
-    #    T5Embedder, Antiberta2Embedder = _get_huggingface_embedders()
-    #    return T5Embedder
-    elif (
+    # 1. Local checkpoints / directories take precedence over any name heuristic,
+    #    so a local file or folder is never mistaken for a HuggingFace repo id or a
+    #    bare weight name (e.g. a directory called "my_esm2_run/").
+    if (
         model_name.endswith(".pt")
         or model_name.endswith(".pth")
         or model_name.startswith("custom:")
@@ -38,46 +52,83 @@ def select_model(model_name):
         )
     ):
         return CustomEmbedder
-    elif "/" in model_name:
-        # Assume it's a Hugging Face model (username/model-name format)
-        # Try to determine the architecture automatically
-        try:
-            from transformers import AutoConfig
 
-            config = AutoConfig.from_pretrained(model_name)
-            model_type = config.model_type.lower()
+    # 2. Anything shaped like a HuggingFace repo id (username/model-name) is
+    #    dispatched by inspecting its config, not its name. This is the primary
+    #    signal: a fine-tune whose slug says "esm2" but is really a BERT no longer
+    #    gets mis-routed.
+    if "/" in model_name:
+        return _select_hf_model(model_name)
 
-            if model_type in ["t5", "mt5"]:
-                T5Embedder, Antiberta2Embedder = _get_huggingface_embedders()
-                return T5Embedder
-            elif model_type in ["roformer"]:
-                T5Embedder, Antiberta2Embedder = _get_huggingface_embedders()
-                return Antiberta2Embedder
-            elif model_type in ["bert"]:
-                # For BERT-like models, we could potentially use a generic embedder
-                # but for now, suggest using CustomEmbedder or creating a specific one
-                raise ValueError(
-                    f"BERT-like models are not yet directly supported. Consider using a PyTorch version of the model with CustomEmbedder."
-                )
-            else:
-                # For other architectures, you might want to add more specific embedders
-                # or use a generic HuggingfaceEmbedder
-                raise ValueError(
-                    f"Model architecture '{model_type}' not yet supported for custom Hugging Face models"
-                )
-        except Exception as e:
-            # Check if it's a Keras/TensorFlow model
-            error_msg = str(e)
-            if "Unrecognized model" in error_msg or "model_type" in error_msg:
-                raise ValueError(
-                    f"Model {model_name} appears to be a Keras/TensorFlow model or has an unsupported architecture. EmbedAIRR currently supports PyTorch models only. Consider using a PyTorch version or converting the model."
-                )
-            else:
-                raise ValueError(
-                    f"Could not determine model architecture for {model_name}: {e}"
-                )
-    else:
-        raise ValueError(f"Model {model_name} not supported")
+    # 3. Bare weight names (no slash) are fair-esm / facebook ESM weight sets, which
+    #    have no downloadable config to inspect. Match on the name for these only.
+    if "esm2" in model_name.lower():
+        return _get_esm2_embedder()
+    if "esm1" in model_name.lower():
+        return _get_esm_embedder()
+
+    raise ValueError(
+        f"Model {model_name} not supported. Pass a HuggingFace repo id "
+        f"(username/model-name), a local .pt/.pth path or directory, or a bare ESM "
+        f"weight name (e.g. esm2_t6_8M_UR50D)."
+    )
+
+
+def _select_hf_model(model_name):
+    """Dispatch a HuggingFace repo id to an embedder by inspecting its config.
+
+    Known architectures get their specialized embedder; everything else (BERT-like
+    encoders and any architecture without a dedicated embedder) falls back to the
+    generic AutoModel-based ``GenericHuggingFaceEmbedder``. The forward pass is
+    architecture-agnostic, so standard encoders such as ProtBert, AntiBERTy and
+    IgBert work through the fallback with no engine changes.
+    """
+    try:
+        from transformers import AutoConfig
+
+        config = AutoConfig.from_pretrained(model_name)
+    except Exception as e:
+        _raise_hf_config_error(model_name, e)
+
+    model_type = (getattr(config, "model_type", "") or "").lower()
+
+    if model_type in ["t5", "mt5"]:
+        T5Embedder, Antiberta2Embedder = _get_huggingface_embedders()
+        return T5Embedder
+    if model_type in ["roformer"]:
+        T5Embedder, Antiberta2Embedder = _get_huggingface_embedders()
+        return Antiberta2Embedder
+    if model_type in ["esm"]:
+        return _get_esm2_embedder()
+    if model_type in ["esmc"]:
+        return _get_esmc_embedder()
+
+    # Fallback: BERT-like and any other architecture route to the generic embedder
+    # instead of raising.
+    import logging
+
+    logging.getLogger("src.model_selecter").info(
+        f"No specialized embedder for architecture '{model_type or 'unknown'}'; "
+        f"using the generic HuggingFace embedder for {model_name}."
+    )
+    return _get_generic_hf_embedder()
+
+
+def _raise_hf_config_error(model_name, error):
+    """Translate an AutoConfig load failure into an actionable ValueError."""
+    error_msg = str(error)
+    if "esmc" in model_name.lower() or "esmc" in error_msg.lower():
+        raise ValueError(
+            f"ESMC models require Biohub's transformers fork (ESM1 fair-esm is unaffected). "
+            f"Install with: pip install git+https://github.com/Biohub/transformers.git@main"
+        ) from error
+    if "Unrecognized model" in error_msg or "model_type" in error_msg:
+        raise ValueError(
+            f"Model {model_name} appears to be a Keras/TensorFlow model or has an unsupported architecture. PEPE currently supports PyTorch models only. Consider using a PyTorch version or converting the model."
+        ) from error
+    raise ValueError(
+        f"Could not load model config for {model_name}: {error}"
+    ) from error
 
 
 supported_models = [
@@ -107,6 +158,10 @@ supported_models = [
     "Rostlab/ProstT5",
     "alchemab/antiberta2-cssp",
     "alchemab/antiberta2",
+    # ESMC models (requires Biohub transformers fork; see README)
+    "biohub/ESMC-300M",
+    "biohub/ESMC-600M",
+    "biohub/ESMC-6B",
     # Custom models examples:
     # - PyTorch models: "/path/to/model.pt", "/path/to/model_directory/", "custom:/path/to/model.pt"
     # - Hugging Face models: "username/model-name", "./local_hf_model"

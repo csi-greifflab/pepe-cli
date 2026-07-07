@@ -24,6 +24,7 @@ requirements:
     - numpy
     - protobuf
     - alive-progress
+    - rjieba
 
 about:
   home: https://github.com/csi-greifflab/pepe-cli

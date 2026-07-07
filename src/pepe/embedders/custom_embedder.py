@@ -288,9 +288,10 @@ class CustomEmbedder(BaseEmbedder):
 
     def _load_layers(self, layers):
         """Process layer specification."""
+        if layers is None:
+            return list(range(1, self.num_layers + 1))
         if not layers:
-            layers = list(range(1, self.num_layers + 1))
-            return layers
+            layers = [-1]
 
         # Validate layer indices
         assert all(

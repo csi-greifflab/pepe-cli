@@ -34,6 +34,7 @@ class TestParseArguments(unittest.TestCase):
         self.assertEqual(args.output_path, "out")
         self.assertEqual(args.extract_embeddings, ["mean_pooled"])
         self.assertTrue(args.streaming_output)
+        self.assertEqual(args.layers, [[-1]])
 
     def test_device_defaults_to_cuda(self):
         args = self._parse(

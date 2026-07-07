@@ -102,9 +102,10 @@ class ESMEmbedder(BaseEmbedder):
         return special_token_ids
 
     def _load_layers(self, layers):
+        if layers is None:
+            return list(range(1, self.model.num_layers + 1))  # type: ignore
         if not layers:
-            layers = list(range(1, self.model.num_layers + 1))  # type: ignore
-            return layers
+            layers = [-1]
         # Checking if the specified representation layers are valid
         assert all(
             -(self.model.num_layers + 1) <= i <= self.model.num_layers for i in layers  # type: ignore

@@ -99,7 +99,11 @@ class TestDeviceLogic(unittest.TestCase):
         source = inspect.getsource(ESMEmbedder._initialize_model)
         self.assertIn('self.device.type == "cuda"', source)
         
-        from pepe.embedders.huggingface_embedder import Antiberta2Embedder
+        from pepe.embedders.huggingface_embedder import Antiberta2Embedder, ESM2Embedder
+        import inspect
+        source = inspect.getsource(ESM2Embedder._initialize_model)
+        self.assertIn('self.device.type == "cuda"', source)
+        
         source = inspect.getsource(Antiberta2Embedder._initialize_model)
         self.assertIn('self.device.type == "cuda"', source)
 
