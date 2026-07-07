@@ -113,7 +113,7 @@ class SequenceDictDataset(Dataset):
 
         # Create masks for each sequence
         masks = []
-        for (label, _, _), full_seq, substring in zip(
+        for (label, _, _, _), full_seq, substring in zip(
             self.encoded_data, full_sequence_tokens, substring_tokens
         ):
             mask = self._find_subsequence(full_seq, substring, self.pad_token_id)
