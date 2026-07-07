@@ -1,45 +1,49 @@
+from pepe.embedders.base_embedder import BaseEmbedder
 from pepe.embedders.custom_embedder import CustomEmbedder
 from pepe.model_errors import translate_hf_config_error
 
 import os
+from typing import Any, Tuple, Type
 
 
-def _get_esm_embedder():
+def _get_esm_embedder() -> Type[BaseEmbedder]:
     """Lazy import of ESM embedder to avoid loading heavy dependencies."""
     from pepe.embedders.esm_embedder import ESMEmbedder
 
     return ESMEmbedder
 
 
-def _get_esm2_embedder():
+def _get_esm2_embedder() -> Type[BaseEmbedder]:
     """Lazy import of ESM-2 embedder (HuggingFace transformers)."""
     from pepe.embedders.huggingface_embedder import ESM2Embedder
 
     return ESM2Embedder
 
 
-def _get_esmc_embedder():
+def _get_esmc_embedder() -> Type[BaseEmbedder]:
     """Lazy import of ESMC embedder (Biohub transformers fork)."""
     from pepe.embedders.huggingface_embedder import ESMCEmbedder
 
     return ESMCEmbedder
 
 
-def _get_huggingface_embedders():
+def _get_huggingface_embedders() -> Tuple[Type[BaseEmbedder], Type[BaseEmbedder]]:
     """Lazy import of HuggingFace embedders to avoid loading heavy dependencies."""
     from pepe.embedders.huggingface_embedder import T5Embedder, Antiberta2Embedder
 
     return T5Embedder, Antiberta2Embedder
 
 
-def _get_generic_hf_embedder():
+def _get_generic_hf_embedder() -> Type[BaseEmbedder]:
     """Lazy import of the generic AutoModel-based HuggingFace fallback embedder."""
     from pepe.embedders.huggingface_embedder import GenericHuggingFaceEmbedder
 
     return GenericHuggingFaceEmbedder
 
 
-def select_model(model_name, trust_remote_code=False):
+def select_model(
+    model_name: str, trust_remote_code: bool = False
+) -> Type[BaseEmbedder]:
     # 1. Local checkpoints / directories take precedence over any name heuristic,
     #    so a local file or folder is never mistaken for a HuggingFace repo id or a
     #    bare weight name (e.g. a directory called "my_esm2_run/").
@@ -75,7 +79,9 @@ def select_model(model_name, trust_remote_code=False):
     )
 
 
-def _select_hf_model(model_name, trust_remote_code=False):
+def _select_hf_model(
+    model_name: str, trust_remote_code: bool = False
+) -> Type[BaseEmbedder]:
     """Dispatch a HuggingFace repo id to an embedder by inspecting its config.
 
     Known architectures get their specialized embedder; everything else (BERT-like

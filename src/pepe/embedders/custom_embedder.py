@@ -4,6 +4,7 @@ import torch.nn as nn
 import os
 import json
 import sys
+from typing import Any, Dict, List, Optional, Set, Tuple
 import pepe.utils
 from pepe.embedders.base_embedder import BaseEmbedder
 from transformers import AutoTokenizer
@@ -20,7 +21,7 @@ class CustomEmbedder(BaseEmbedder):
     for different model architectures.
     """
 
-    def __init__(self, args):
+    def __init__(self, args: Any) -> None:
         super().__init__(args)
 
         # For custom models, we expect the model_name to be a path to a .pt file
@@ -80,8 +81,14 @@ class CustomEmbedder(BaseEmbedder):
             f"{self.num_heads} heads, embedding size {self.embedding_size}"
         )
 
-    def _initialize_model(self, model_path, tokenizer_path=None):
+    def _initialize_model(
+        self,
+        model_link: Optional[str] = None,
+        tokenizer_path: Optional[str] = None,
+    ) -> Tuple[Any, ...]:
         """Initialize the custom model from .pt file or directory."""
+        assert model_link is not None
+        model_path = model_link
         logger.info(f"Loading custom model from: {model_path}")
 
         # Check if model_path is a directory or a file
@@ -111,7 +118,9 @@ class CustomEmbedder(BaseEmbedder):
                 tokenizer_path = os.path.dirname(model_path)
 
         # Load model
-        model_data = torch.load(model_file_path, map_location="cpu")
+        model_data = torch.load(
+            model_file_path, map_location="cpu", weights_only=False
+        )
 
         # Handle different model saving formats
         if isinstance(model_data, dict):
@@ -171,7 +180,7 @@ class CustomEmbedder(BaseEmbedder):
 
         return model, tokenizer, num_heads, num_layers, embedding_size
 
-    def _initialize_tokenizer(self, tokenizer_path, config):
+    def _initialize_tokenizer(self, tokenizer_path: Any, config: Dict[str, Any]) -> Any:
         """Initialize tokenizer for custom model."""
         try:
             tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
@@ -184,7 +193,7 @@ class CustomEmbedder(BaseEmbedder):
         logger.info("Using default protein tokenizer")
         return DefaultProteinTokenizer()
 
-    def _infer_num_layers(self, state_dict):
+    def _infer_num_layers(self, state_dict: Any) -> int:
         """Infer number of layers from state dict."""
         assert state_dict is not None, "State dict cannot be None for layer inference"
 
@@ -198,7 +207,7 @@ class CustomEmbedder(BaseEmbedder):
                     layer_numbers.append(int(part))
         return max(layer_numbers) + 1 if layer_numbers else 12
 
-    def _infer_num_heads(self, state_dict):
+    def _infer_num_heads(self, state_dict: Any) -> int:
         """Infer number of attention heads from state dict."""
         assert state_dict is not None, "State dict cannot be None for head inference"
 
@@ -213,8 +222,9 @@ class CustomEmbedder(BaseEmbedder):
             if len(tensor.shape) >= 2:
                 # Assume the second dimension might be related to heads
                 return tensor.shape[1] // 64 if tensor.shape[1] % 64 == 0 else 12
+        return 12
 
-    def _infer_embedding_size(self, state_dict):
+    def _infer_embedding_size(self, state_dict: Any) -> int:
         """Infer embedding size from state dict."""
         assert (
             state_dict is not None
@@ -243,7 +253,7 @@ class CustomEmbedder(BaseEmbedder):
 
         return 768
 
-    def _get_valid_tokens(self):
+    def _get_valid_tokens(self) -> Set[str]:
         """Get valid tokens for the tokenizer."""
         if hasattr(self.tokenizer, "get_vocab"):
             return set(self.tokenizer.get_vocab().keys())
@@ -276,7 +286,7 @@ class CustomEmbedder(BaseEmbedder):
                 ]
             )
 
-    def _get_special_tokens(self):
+    def _get_special_tokens(self) -> torch.Tensor:
         """Get special token IDs."""
         if hasattr(self.tokenizer, "all_special_ids"):
             return torch.tensor(
@@ -286,7 +296,7 @@ class CustomEmbedder(BaseEmbedder):
             # Default special tokens (pad, cls, sep, unk)
             return torch.tensor([0, 1, 2, 3], device=self.device, dtype=torch.int8)
 
-    def _load_layers(self, layers):
+    def _load_layers(self, layers: Optional[List[int]] = None) -> List[int]:
         """Process layer specification."""
         if layers is None:
             return list(range(1, self.num_layers + 1))
@@ -302,15 +312,21 @@ class CustomEmbedder(BaseEmbedder):
         layers = [(i + self.num_layers + 1) % (self.num_layers + 1) for i in layers]
         return layers
 
-    def _load_data(self, sequences, substring_dict=None):
+    def _load_data(
+        self,
+        sequences: Optional[Dict[str, str]] = None,
+        substring_dict: Optional[Dict[str, str]] = None,
+        bracket_type: Optional[Any] = None,
+    ) -> Tuple[Any, Any]:
         """Load and tokenize sequences."""
+        assert sequences is not None
         # Create dataset
         dataset = pepe.utils.CustomDataset(
             sequences,
             substring_dict,
             self.context,
             self.tokenizer,
-            self.max_length,
+            self.max_input_length,
             add_special_tokens=not self.disable_special_tokens,
         )
 
@@ -330,14 +346,15 @@ class CustomEmbedder(BaseEmbedder):
 
     def _compute_outputs(
         self,
-        model,
-        toks,
-        attention_mask,
-        return_embeddings,
-        return_contacts,
-        return_logits,
-    ):
+        model: Any,
+        toks: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
+        return_embeddings: bool,
+        return_contacts: bool,
+        return_logits: bool = False,
+    ) -> Tuple[Optional[Any], Optional[Any], Optional[Any]]:
         """Compute model outputs."""
+        assert self.layers is not None
         # Forward pass through the model
         outputs = model(
             input_ids=toks,
@@ -351,7 +368,7 @@ class CustomEmbedder(BaseEmbedder):
         logits = None
         if return_logits and hasattr(outputs, "logits"):
             logits = outputs.logits.to(
-                dtype=self._precision_to_dtype(self.precision, "torch")  # type: ignore
+                dtype=self._precision_to_dtype(self.precision, "torch")
             ).cpu()
             torch.cuda.empty_cache()
 
@@ -364,7 +381,7 @@ class CustomEmbedder(BaseEmbedder):
         ):
             attention_matrices = (
                 torch.stack(outputs.attentions)
-                .to(self._precision_to_dtype(self.precision, "torch"))  # type: ignore
+                .to(self._precision_to_dtype(self.precision, "torch"))
                 .cpu()
             )
             torch.cuda.empty_cache()
@@ -374,7 +391,7 @@ class CustomEmbedder(BaseEmbedder):
         if return_embeddings and hasattr(outputs, "hidden_states"):
             representations = {
                 layer: outputs.hidden_states[layer - 1]
-                .to(self._precision_to_dtype(self.precision, "torch"))  # type: ignore
+                .to(self._precision_to_dtype(self.precision, "torch"))
                 .cpu()
                 for layer in self.layers
             }
