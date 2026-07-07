@@ -6,3 +6,4 @@ sentencepiece
 numpy
 protobuf
 alive_progress
+rjieba

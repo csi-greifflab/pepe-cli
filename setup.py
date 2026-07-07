@@ -47,6 +47,7 @@ setup(
         "numpy",
         "protobuf",
         "alive_progress",
+        "rjieba",
     ],
     entry_points={
         "console_scripts": [

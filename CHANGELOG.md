@@ -23,6 +23,9 @@ truth that drives publishing).
 - `CONTRIBUTING.md` with dev-environment setup, how to run tests, and the
   release process.
 - This changelog.
+- `rjieba` as a runtime dependency, required by AntiBERTa2's `RoFormerTokenizer`.
+  Previously AntiBERTa2 models failed with an `ImportError` unless users
+  installed it manually; CI now guards against this regression.
 
 ### Fixed
 - Corrected the PyPI license classifier from "GNU Affero General Public License

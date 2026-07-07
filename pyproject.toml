@@ -33,6 +33,7 @@ dependencies = [
     "numpy",
     "protobuf",
     "alive_progress",
+    "rjieba",
 ]
 
 [project.urls]

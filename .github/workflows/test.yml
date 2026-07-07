@@ -53,9 +53,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .
-          # biopython: used by the splitting tests.
-          # rjieba: required by AntiBERTa2's RoFormerTokenizer (see test_splitting.py).
-          pip install pytest biopython rjieba
+          # biopython is a test-only dependency (used by the splitting tests).
+          # rjieba is NOT installed here on purpose: it's a real package dependency
+          # (AntiBERTa2's RoFormerTokenizer needs it), so `pip install -e .` must
+          # provide it. If it doesn't, these tests should fail — that's the point.
+          pip install pytest biopython
       - name: Run integration tests (downloads esm2_t6_8M, ~30 MB)
         run: |
           python -m pytest -v \
