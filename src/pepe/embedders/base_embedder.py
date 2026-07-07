@@ -84,6 +84,10 @@ class BaseEmbedder:
         self.chunks_mapping: Dict[str, List[str]] = {}
         self.chunk_payload_lengths: Dict[str, int] = {}
         self.original_sequences: Dict[str, str] = {}
+        # Set in embed() when mean_pooled must be stitched back from chunks but
+        # per_token was not itself requested: per-token reps are then retained
+        # internally so mean-pooled reconstruction has the data it needs.
+        self._retain_per_token = False
         if torch.cuda.is_available() and args.device.startswith("cuda"):
             self.device = torch.device(args.device)
         else:
@@ -381,7 +385,34 @@ class BaseEmbedder:
             )
             return logits, representations, attention_matrices
 
+    def _active_output_types(self) -> List[str]:
+        """Output types to extract per batch.
+
+        Normally exactly the requested outputs, but when mean-pooled results
+        must be reconstructed from long-sequence chunks we also extract
+        per_token internally (it is not exported) so the stitched-together
+        per-residue tensors are available to recompute the pooled vector.
+        """
+        if self._retain_per_token and "per_token" not in self.output_types:
+            return list(self.output_types) + ["per_token"]
+        return list(self.output_types)
+
     def embed(self) -> None:
+        # Long-sequence mean-pooled reconstruction (in-memory only) needs the
+        # per-residue representations of each chunk. If the user asked for
+        # mean_pooled but not per_token, retain per_token internally for the
+        # duration of the run so _reconstruct_chunks can stitch and re-pool.
+        self._retain_per_token = (
+            not self.streaming_output
+            and bool(self.chunks_mapping)
+            and "mean_pooled" in self.output_types
+            and "per_token" not in self.output_types
+        )
+        if self._retain_per_token:
+            logger.info(
+                "Retaining per_token representations internally to reconstruct "
+                "mean_pooled outputs for split sequences (not exported)."
+            )
         if self.streaming_output:
             # Start centralized I/O dispatcher with checkpoint support
             self.io_dispatcher = MultiIODispatcher(
@@ -563,7 +594,7 @@ class BaseEmbedder:
         self,
         output_bundle: Dict[str, Any],
     ) -> None:
-        for output_type in self.output_types:
+        for output_type in self._active_output_types():
             sig = inspect.signature(getattr(self, output_type)["method"])
             needed_args = {
                 k: v for k, v in output_bundle.items() if k in sig.parameters
@@ -1052,13 +1083,28 @@ class BaseEmbedder:
         
         # For each output type, we need to rebuild the data
         rebuild_logits = "logits" in self.output_types
-        rebuild_per_token = "per_token" in self.output_types
+        per_token_requested = "per_token" in self.output_types
         rebuild_mean_pooled = "mean_pooled" in self.output_types
+        # Mean-pooled reconstruction is derived from the stitched per-residue
+        # tensors, so per_token must be (re)built as scratch whenever mean_pooled
+        # needs it — even if per_token itself was not a requested output. In that
+        # scratch-only case embed() has retained per_token via _retain_per_token.
+        build_per_token = per_token_requested or rebuild_mean_pooled
+
+        if rebuild_mean_pooled and not (per_token_requested or self._retain_per_token):
+            # embed() sets _retain_per_token for exactly this case; if it is unset
+            # the per-token reps were dropped and mean_pooled cannot be stitched.
+            # Fail loudly rather than raising an opaque KeyError mid-loop.
+            raise RuntimeError(
+                "Cannot reconstruct mean_pooled for split sequences without "
+                "per_token representations (internal per-token retention was "
+                "not enabled)."
+            )
 
         output_type_map = []
         if rebuild_logits:
             output_type_map.append(("logits", self.logits))
-        if rebuild_per_token:
+        if build_per_token:
             output_type_map.append(("per_token", self.per_token))
         if rebuild_mean_pooled:
             output_type_map.append(("mean_pooled", self.mean_pooled))
@@ -1101,9 +1147,9 @@ class BaseEmbedder:
             chunk_labels = self.chunks_mapping[orig_label]
             
             # 1. Concatenate per-token and logits
-            if rebuild_per_token or rebuild_logits:
+            if build_per_token or rebuild_logits:
                 for output_type, obj, flag in [
-                    ("per_token", self.per_token, rebuild_per_token),
+                    ("per_token", self.per_token, build_per_token),
                     ("logits", self.logits, rebuild_logits),
                 ]:
                     if flag:
@@ -1153,6 +1199,10 @@ class BaseEmbedder:
         self.sequence_labels = new_sequence_labels
         self.num_sequences = len(self.sequence_labels)
         for output_type, obj in output_type_map:
+            # per_token may have been rebuilt only as scratch for mean-pooling;
+            # don't overwrite (or export) it unless the user asked for it.
+            if output_type == "per_token" and not per_token_requested:
+                continue
             for layer in self.layers:
                 obj["output_data"][layer] = reconstructed_data[output_type][layer]
         

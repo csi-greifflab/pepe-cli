@@ -117,7 +117,10 @@ class CustomEmbedder(BaseEmbedder):
             if not tokenizer_path:
                 tokenizer_path = os.path.dirname(model_path)
 
-        # Load model
+        # Load model. weights_only=False fully unpickles the checkpoint (needed
+        # for the config/metadata dict format) and therefore executes arbitrary
+        # code from the file — acceptable here because a custom .pt path is the
+        # user's own local model, not a remote download.
         model_data = torch.load(
             model_file_path, map_location="cpu", weights_only=False
         )

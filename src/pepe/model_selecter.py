@@ -125,7 +125,9 @@ def _select_hf_model(
     return _get_generic_hf_embedder()
 
 
-_MODEL_MAX_LENGTH_SENTINEL = 1_000_000_000
+# Same threshold BaseEmbedder uses to treat HF sentinel model_max_length
+# (~1e30) as "no enforced limit"; kept as a single source of truth.
+_MODEL_MAX_LENGTH_SENTINEL = int(BaseEmbedder._UNKNOWN_MAX_LENGTH_THRESHOLD)
 
 
 def _format_max_length(config, tokenizer):

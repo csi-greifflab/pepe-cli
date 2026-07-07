@@ -49,8 +49,8 @@ truth that drives publishing).
 - Gated ESM-1 integration test (`test_esm1_integration.py`; requires `fair-esm`).
 - Gated T5 / AntiBERTa2 integration tests (`T5_ANTIBERTA2_TEST=1`); optional
   manual ProtT5 checkpoint test (`PROT_T5_MANUAL_TEST=1`).
-- On-disk fixtures for long-sequence splitting regression tests
-  (`src/tests/splitting_test_assets/`).
+- Regression test for mean-pooled reconstruction of split sequences without
+  per_token (`test_reconstruct_mean_pooled.py`).
 
 ### Changed
 - Logger namespace unified under `pepe` (was `src.*`) so API and module loggers
@@ -97,6 +97,10 @@ truth that drives publishing).
 - In-memory long-sequence chunk reconstruction keyed outputs by output type
   instead of Python object id, fixing mean-pooled (and related) stitch-up after
   splits.
+- In-memory long-sequence reconstruction no longer crashes with `KeyError:
+  'per_token'` when `mean_pooled` is requested without `per_token`; per-token
+  representations are now retained internally so the pooled vector can be
+  stitched back from chunks (and are not exported).
 - Custom embedder checkpoint load uses explicit `weights_only=False` for PyTorch
   2.x `.pt` checkpoints that include non-tensor metadata.
 - Custom embedder `_infer_num_heads` returns a default when inference fails
