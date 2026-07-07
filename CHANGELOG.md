@@ -39,6 +39,16 @@ truth that drives publishing).
   `@pytest.mark.integration` and `@pytest.mark.slow` markers registered in
   `conftest.py`.
 
+- PEP 561 typing support via `src/pepe/py.typed` and setuptools package data.
+- `[tool.mypy]` configuration plus a non-blocking CI job that type-checks the
+  public API surface (`api`, model selection, embedders, `utils`).
+- Unit test guarding CLI/`embed()` argument parity (`test_sync_arguments.py`).
+- Custom `.pt` embedder round-trip test (`test_custom_embedder.py`).
+- Gated ESM-1 integration test (`test_esm1_integration.py`; requires `fair-esm`).
+- Gated T5 / AntiBERTa2 integration tests (`T5_ANTIBERTA2_TEST=1`).
+- On-disk fixtures for long-sequence splitting regression tests
+  (`src/tests/splitting_test_assets/`).
+
 ### Changed
 - Logger namespace unified under `pepe` (was `src.*`) so API and module loggers
   share handlers.
@@ -51,6 +61,14 @@ truth that drives publishing).
   instead of string-sniffing on error messages (`model_errors.py`).
 - Generic HuggingFace model loading no longer auto-enables `trust_remote_code`
   based on repo name patterns; use `--trust_remote_code` explicitly when needed.
+
+- Type annotations on the embedding engine and `check_untyped_defs` mypy overrides
+  for core modules (`base_embedder`, HuggingFace/custom/ESM embedders, `utils`,
+  `model_selecter`).
+- CI unit job reports pytest coverage (`--cov=pepe`) and runs sync/custom
+  embedder unit tests.
+- Legacy manual verification scripts removed in favor of pytest
+  (`test_run.py`, `verify_readme.py`, `verify_cross_tool_consistency.py`).
 
 ### Fixed
 - Streaming mode silently dropped attention outputs due to memmap registry key
@@ -72,6 +90,14 @@ truth that drives publishing).
   warning when the tokenizer is subword-based (per-residue outputs may be
   misaligned). Sentinel `tokenizer.model_max_length` values (~1e30) are treated
   as unknown limits instead of a real cap.
+
+- In-memory long-sequence chunk reconstruction keyed outputs by output type
+  instead of Python object id, fixing mean-pooled (and related) stitch-up after
+  splits.
+- Custom embedder checkpoint load uses explicit `weights_only=False` for PyTorch
+  2.x `.pt` checkpoints that include non-tensor metadata.
+- Custom embedder `_infer_num_heads` returns a default when inference fails
+  instead of implicitly returning `None`.
 
 ## [1.3.0] - 2026-07-07
 
