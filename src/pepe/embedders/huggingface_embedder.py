@@ -9,8 +9,19 @@ from typing import Any, Dict, List, Optional, Tuple
 # Lazy imports to avoid loading heavy dependencies at import time
 def _import_transformers():
     """Lazy import of transformers components to avoid loading issues."""
+    import importlib
+
     try:
-        from transformers import T5EncoderModel, T5TokenizerFast
+        from transformers import T5EncoderModel
+        try:
+            _t5_fast = importlib.import_module(
+                "transformers.models.t5.tokenization_t5_fast"
+            )
+            T5TokenizerFast = _t5_fast.T5TokenizerFast
+        except ModuleNotFoundError:
+            import transformers
+
+            T5TokenizerFast = getattr(transformers, "T5TokenizerFast")
         from transformers import RoFormerTokenizer, RoFormerModel
         from transformers.models.roformer.modeling_roformer import (
             RoFormerSinusoidalPositionalEmbedding,

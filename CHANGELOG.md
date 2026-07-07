@@ -98,6 +98,9 @@ truth that drives publishing).
   2.x `.pt` checkpoints that include non-tensor metadata.
 - Custom embedder `_infer_num_heads` returns a default when inference fails
   instead of implicitly returning `None`.
+- mypy CI failure for `T5TokenizerFast` lazy import in `huggingface_embedder.py`
+  (transformers stubs omit the top-level re-export; import via submodule with
+  transformers 5.x fallback).
 
 ## [1.3.0] - 2026-07-07
 
