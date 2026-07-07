@@ -132,7 +132,7 @@ jobs:
 
         echo "🎉 Package verification completed successfully!"
         echo "Package $PACKAGE_NAME version $CURRENT_VERSION is now available on PyPI!"
-    
+
     - name: Upload dist artifacts
       uses: actions/upload-artifact@v4
       with:
