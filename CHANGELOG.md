@@ -31,6 +31,51 @@ truth that drives publishing).
 - `pepe --check_model <repo>` dry-run that loads config and tokenizer only and
   prints architecture, embedder choice, max length, tokenizer type, and output
   capabilities before any embedding run.
+- `--verbose` CLI/API flag to enable GPU/IO profiling stats at the end of an
+  embedding run (default off).
+- Streaming vs in-memory regression tests (`test_streaming_roundtrip.py`)
+  covering all standard output types.
+- Session-scoped pytest fixture that loads ESM2-8M once per test session;
+  `@pytest.mark.integration` and `@pytest.mark.slow` markers registered in
+  `conftest.py`.
+
+### Changed
+- Logger namespace unified under `pepe` (was `src.*`) so API and module loggers
+  share handlers.
+- HuggingFace dataset tokenization batches all sequences in one tokenizer call
+  instead of a per-sequence loop.
+- Per-batch `gc.collect()` and non-OOM `torch.cuda.empty_cache()` removed from
+  the embed loop (CUDA cache is still cleared on OOM retry paths).
+- GPU/IO profiling summary is logged only when `--verbose` is set.
+- HuggingFace config/load failures are classified by upstream exception type
+  instead of string-sniffing on error messages (`model_errors.py`).
+- Generic HuggingFace model loading no longer auto-enables `trust_remote_code`
+  based on repo name patterns; use `--trust_remote_code` explicitly when needed.
+
+### Fixed
+- Streaming mode silently dropped attention outputs due to memmap registry key
+  mismatches (`attention_matrices_*` vs `attention_head` / `attention_layer` /
+  `attention_model`).
+- `preallocate_disk_space()` failed for model-level outputs such as
+  `attention_model` when assigning memmaps via `setattr` on a dict.
+- `get_substring_positions` did not raise when a CSV substring entry was missing
+  for a sequence label.
+- Substring pooling produced NaN embeddings when a substring did not match the
+  tokenized full sequence; now raises `ValueError` with the sequence label.
+- Missing substring CSV entries raised a generic `assert` (disabled under
+  `python -O`); replaced with `ValueError` listing missing IDs.
+- `MultiIODispatcher` default `heavy_output_type` updated from legacy
+  `embeddings_unpooled` to `per_token`.
+- Generic HuggingFace embedder (`GenericHuggingFaceEmbedder`) now mirrors ESM-2
+  safeguards: length-limit detection and optional sequence splitting via
+  `_check_max_input_length`, eager attention when extracting contacts, and a
+  warning when the tokenizer is subword-based (per-residue outputs may be
+  misaligned). Sentinel `tokenizer.model_max_length` values (~1e30) are treated
+  as unknown limits instead of a real cap.
+
+## [1.3.0] - 2026-07-07
+
+### Added
 - Broader model compatibility: BERT-like and other unrecognized HuggingFace
   architectures now fall back to the generic `AutoModel`-based embedder instead
   of raising, so standard protein encoders such as ProtBert, AntiBERTy and
@@ -45,10 +90,6 @@ truth that drives publishing).
   installed it manually; CI now guards against this regression.
 
 ### Changed
-- HuggingFace config/load failures are classified by upstream exception type
-  instead of string-sniffing on error messages (`model_errors.py`).
-- Generic HuggingFace model loading no longer auto-enables `trust_remote_code`
-  based on repo name patterns; use `--trust_remote_code` explicitly when needed.
 - Model dispatch (`model_selecter.py`) now inspects a HuggingFace repo's config
   (`AutoConfig.model_type`) before matching on its name. A fine-tune whose repo
   slug contains "esm2" but whose architecture is something else is no longer
@@ -61,12 +102,6 @@ truth that drives publishing).
   `pypa/gh-action-pypi-publish` is Docker-based and unaffected.
 
 ### Fixed
-- Generic HuggingFace embedder (`GenericHuggingFaceEmbedder`) now mirrors ESM-2
-  safeguards: length-limit detection and optional sequence splitting via
-  `_check_max_input_length`, eager attention when extracting contacts, and a
-  warning when the tokenizer is subword-based (per-residue outputs may be
-  misaligned). Sentinel `tokenizer.model_max_length` values (~1e30) are treated
-  as unknown limits instead of a real cap.
 - Corrected the PyPI license classifier from "GNU Affero General Public License
   v3" to "MIT License" in `pyproject.toml` and `setup.py`, matching the actual
   `LICENSE` file.

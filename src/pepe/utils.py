@@ -12,7 +12,7 @@ import threading, queue
 from alive_progress import alive_bar
 import shutil
 
-logger = logging.getLogger("src.utils")
+logger = logging.getLogger("pepe.utils")
 
 
 class TokenBudgetBatchSampler:
@@ -82,9 +82,12 @@ class SequenceDictDataset(Dataset):
         filtered_substring_dict = {
             label: self.substring_dict[label] for label in labels if label in self.substring_dict  # type: ignore
         }
-        assert len(filtered_substring_dict) == len(
-            self.data
-        ), "Not all sequences have matching substrings."
+        if len(filtered_substring_dict) != len(self.data):
+            missing = [label for label in labels if label not in self.substring_dict]  # type: ignore
+            raise ValueError(
+                "Not all sequences have matching substrings. "
+                f"Missing substring entries for: {', '.join(missing)}"
+            )
         return filtered_substring_dict.items()
 
     def _get_substring_masks(self):
@@ -94,12 +97,18 @@ class SequenceDictDataset(Dataset):
         substring_tokens = [entry[2] for entry in self.encoded_substring_data]  # type: ignore
 
         # Create masks for each sequence
-        masks = [
-            self._find_subsequence(full_seq, substring, self.pad_token_id)  # type: ignore
-            for full_seq, substring in zip(full_sequence_tokens, substring_tokens)
-        ]
+        masks = []
+        for (label, _, _), full_seq, substring in zip(
+            self.encoded_data, full_sequence_tokens, substring_tokens  # type: ignore
+        ):
+            mask = self._find_subsequence(full_seq, substring, self.pad_token_id)  # type: ignore
+            if mask.sum() == 0:
+                raise ValueError(
+                    f"Substring for sequence '{label}' not found in the tokenized full sequence."
+                )
+            masks.append(mask)
 
-        return list(masks)
+        return masks
 
     def _find_subsequence(self, full_tensor, subtensor, pad_token_id=0):
         subsequence_mask = torch.zeros_like(full_tensor)
@@ -194,22 +203,17 @@ class HuggingFaceDataset(SequenceDictDataset):
                 max_length = max_token_length
         loop_input_ids = []
         loop_attention_mask = []
-        with alive_bar(len(strs), title="Tokenizing sequences...") as bar:
-            for s in strs:
-                out = tokenizer(
-                    s,
-                    truncation=True,
-                    padding="max_length",
-                    max_length=max_length,
-                    add_special_tokens=add_special_tokens,
-                    return_tensors="pt",
-                )
-                loop_input_ids.append(out.input_ids)
-                loop_attention_mask.append(out.attention_mask)
-                bar()
-
-        toks = torch.cat(loop_input_ids, dim=0)
-        attention_masks = torch.cat(loop_attention_mask, dim=0)
+        logger.info(f"Tokenizing {len(strs)} sequences...")
+        out = tokenizer(
+            list(strs),
+            truncation=True,
+            padding="max_length",
+            max_length=max_length,
+            add_special_tokens=add_special_tokens,
+            return_tensors="pt",
+        )
+        toks = out.input_ids
+        attention_masks = out.attention_mask
         return list(zip(labels, strs, list(toks), list(attention_masks)))
 
     def get_max_encoded_length(self):
@@ -855,7 +859,7 @@ class MultiIODispatcher:
         memmap_registry,
         num_workers=4,
         flush_bytes_limit=64 * 1024 * 1024,
-        heavy_output_type="embeddings_unpooled",
+        heavy_output_type="per_token",
         heavy_proportion=0.75,
         checkpoint_dir=None,
     ):

@@ -18,7 +18,7 @@ def _import_esm():
         ) from e
 
 
-logger = logging.getLogger("src.embedders.esm_embedder")
+logger = logging.getLogger("pepe.embedders.esm_embedder")
 
 
 class ESMEmbedder(BaseEmbedder):

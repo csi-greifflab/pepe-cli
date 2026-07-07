@@ -3,7 +3,6 @@ import sys
 import unittest
 import torch
 import numpy as np
-from Bio import SeqIO
 import subprocess
 import shutil
 

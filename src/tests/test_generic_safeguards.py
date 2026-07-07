@@ -104,7 +104,7 @@ class TestGenericLengthSafety(unittest.TestCase):
         self.assertGreater(len(embedder.chunks_mapping["long_prot"]), 1)
 
     def test_warns_when_split_long_sequences_disabled(self):
-        with self.assertLogs("src.embedders.base_embedder", level="WARNING") as logs:
+        with self.assertLogs("pepe.embedders.base_embedder", level="WARNING") as logs:
             self._build_embedder(split_long_sequences=False)
         self.assertTrue(
             any("exceed the model's maximum allowed length" in msg for msg in logs.output)
@@ -204,13 +204,13 @@ class TestCharacterTokenizerDetection(unittest.TestCase):
 
     def test_subword_tokenizer_logs_warning(self):
         _, tokenizer = _mock_model_tokenizer(char_level=False)
-        with self.assertLogs("src.utils", level="WARNING") as logs:
+        with self.assertLogs("pepe.utils", level="WARNING") as logs:
             warn_if_non_character_tokenizer(tokenizer, "someuser/wordpiece-bert")
         self.assertTrue(any("subword tokenizer" in msg for msg in logs.output))
 
     def test_char_level_tokenizer_no_warning(self):
         _, tokenizer = _mock_model_tokenizer(char_level=True)
-        with patch.object(logging.getLogger("src.utils"), "warning") as mock_warn:
+        with patch.object(logging.getLogger("pepe.utils"), "warning") as mock_warn:
             warn_if_non_character_tokenizer(tokenizer, "someuser/char-bert")
         mock_warn.assert_not_called()
 
@@ -224,7 +224,7 @@ class TestSentinelModelMaxLength(unittest.TestCase):
         embedder.tokenizer = MagicMock()
         embedder.tokenizer.model_max_length = 1000000000000.0
 
-        with self.assertLogs("src.embedders.base_embedder", level="INFO") as logs:
+        with self.assertLogs("pepe.embedders.base_embedder", level="INFO") as logs:
             result = embedder._get_model_max_allowed()
 
         self.assertIsNone(result)

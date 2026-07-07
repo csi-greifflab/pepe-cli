@@ -5,14 +5,13 @@ import re
 import numpy as np
 from numpy.lib.format import open_memmap
 import inspect
-import gc
 from pepe.utils import MultiIODispatcher, check_disk_free_space
 from alive_progress import alive_bar
 import time
 from pathlib import Path
 import logging
 
-logger = logging.getLogger("src.embedders.base_embedder")
+logger = logging.getLogger("pepe.embedders.base_embedder")
 
 
 class BaseEmbedder:
@@ -89,6 +88,7 @@ class BaseEmbedder:
         self.flush_batches_after = args.flush_batches_after * 1024**2  # in bytes
         self.precision = args.precision
         # self.log_memory = args.log_memory # TODO implement memory logging
+        self.verbose = getattr(args, "verbose", False)
         self.total_gpu_time = 0.0
         self.total_backpressure_time = 0.0
         self.total_io_enqueue_time = 0.0
@@ -281,7 +281,7 @@ class BaseEmbedder:
                 output_array = open_memmap(
                     file_path, mode=mode, dtype=np_dtype, shape=shape
                 )
-                setattr(getattr(self, output_type), "output_data", output_array)
+                getattr(self, output_type)["output_data"] = output_array
                 memmap_registry[(output_type, None, None)] = output_array
                 total_bytes += bytes_per_array
 
@@ -385,7 +385,6 @@ class BaseEmbedder:
                 logits, representations, attention_matrices = self._safe_compute(
                     toks, attention_mask
                 )
-                torch.cuda.empty_cache()
                 self.total_gpu_time += time.time() - t0_gpu
                 
                 output_bundle = {
@@ -417,8 +416,6 @@ class BaseEmbedder:
                 self.total_io_enqueue_time += time.time() - t0_io
 
                 del logits, representations, attention_matrices
-                gc.collect()
-                torch.cuda.empty_cache()
 
                 offset += len(toks)
 
@@ -432,13 +429,20 @@ class BaseEmbedder:
                 self.io_dispatcher.stop()
 
             logger.info("Finished extracting embeddings")
-            logger.info(f"--- Profiling Results ---")
-            logger.info(f"Total GPU compute time: {self.total_gpu_time:.2f}s")
-            logger.info(f"Total Backpressure wait time: {self.total_backpressure_time:.2f}s")
-            logger.info(f"Total IO Enqueue time: {self.total_io_enqueue_time:.2f}s")
-            if self.total_gpu_time > 0:
-                overhead = (self.total_backpressure_time + self.total_io_enqueue_time) / self.total_gpu_time
-                logger.info(f"IO Overhead ratio: {overhead:.2f}x")
+            if self.verbose:
+                logger.info("--- Profiling Results ---")
+                logger.info(f"Total GPU compute time: {self.total_gpu_time:.2f}s")
+                logger.info(
+                    f"Total Backpressure wait time: {self.total_backpressure_time:.2f}s"
+                )
+                logger.info(
+                    f"Total IO Enqueue time: {self.total_io_enqueue_time:.2f}s"
+                )
+                if self.total_gpu_time > 0:
+                    overhead = (
+                        self.total_backpressure_time + self.total_io_enqueue_time
+                    ) / self.total_gpu_time
+                    logger.info(f"IO Overhead ratio: {overhead:.2f}x")
 
         # After successful completion, clean up the checkpoint file
         if self.streaming_output:
@@ -480,7 +484,7 @@ class BaseEmbedder:
         try:
             substring = self.substring_dict[label]  # type: ignore
         except KeyError:
-            SystemExit(f"No matching substring found for {label}")
+            raise SystemExit(f"No matching substring found for {label}")
         # remove '-' from substring
         substring = substring.replace("-", "")
 
@@ -508,7 +512,6 @@ class BaseEmbedder:
         # clear the output bundle to free up memory
         output_bundle.clear()
         del output_bundle
-        torch.cuda.empty_cache()
 
     def _mask_special_tokens(self, input_tensor, special_tokens=None):
         """
@@ -644,7 +647,7 @@ class BaseEmbedder:
                     # ][head]
                     # self.write_batch_to_disk(output_file, tensor, offset)
                     self.io_dispatcher.enqueue(
-                        output_type="attention_matrices_all_heads",
+                        output_type="attention_head",
                         layer=layer,
                         head=head,
                         offset=offset,
@@ -678,7 +681,7 @@ class BaseEmbedder:
                 # ]
                 # self.write_batch_to_disk(output_file, tensor, offset)
                 self.io_dispatcher.enqueue(
-                    output_type="attention_matrices_average_layers",
+                    output_type="attention_layer",
                     layer=layer,
                     head=None,
                     offset=offset,
@@ -707,7 +710,7 @@ class BaseEmbedder:
             # output_file = self.attention_matrices_average_all["output_data"]
             # self.write_batch_to_disk(output_file, tensor, offset)
             self.io_dispatcher.enqueue(
-                output_type="attention_matrices_average_all",
+                output_type="attention_model",
                 layer=None,
                 head=None,
                 offset=offset,

@@ -38,7 +38,7 @@ def _import_transformers():
 # Set max_split_size_mb
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 
-logger = logging.getLogger("src.embedders.huggingface_embedder")
+logger = logging.getLogger("pepe.embedders.huggingface_embedder")
 
 
 class HuggingfaceEmbedder(BaseEmbedder):

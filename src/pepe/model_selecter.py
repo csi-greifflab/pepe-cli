@@ -112,7 +112,7 @@ def _select_hf_model(model_name, trust_remote_code=False):
     # instead of raising.
     import logging
 
-    logging.getLogger("src.model_selecter").info(
+    logging.getLogger("pepe.model_selecter").info(
         f"No specialized embedder for architecture '{model_type or 'unknown'}'; "
         f"using the generic HuggingFace embedder for {model_name}."
     )
