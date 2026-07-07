@@ -10,7 +10,8 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
 
 ## Quick start
 
-1. Install PEPE \
+1. Install PEPE
+
     From PyPI:    
     ```sh
     pip install pepe-cli
@@ -25,11 +26,13 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     cd pepe-cli
     pip install .
     ```
-    For ESMC models (e.g. `biohub/ESMC-300M`), install Biohub's transformers fork separately (PyPI does not allow git dependencies in package metadata; this does not affect ESM1 `fair-esm` support):
+
+2. *(Optional)* For ESMC models (e.g. `biohub/ESMC-300M`), install Biohub's transformers fork:
     ```sh
     pip install git+https://github.com/Biohub/transformers.git@main
     ```
-2. Run the embedding script:\
+
+3. Extract embeddings:\
     Extract mean pooled embeddings from protein amino acid sequences in FASTA file:
     ```sh
     pepe --experiment_name <optional_string> --fasta_path <file_path> --output_path <directory> --model_name <model_name>
@@ -39,7 +42,7 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
 
 PEPE can also be used as a Python library. This allows for programmatic access to protein embeddings without using the command-line interface.
 
-1. Install PEPE (see [Quick start with CLI](#quick-start-with-cli) for details).
+1. Install PEPE (see above for details).
 2. Use the `pepe.embed()` function in your script:
 
 ```python
