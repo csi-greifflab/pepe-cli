@@ -17,7 +17,7 @@ truth that drives publishing).
 
 ## [Unreleased]
 
-## [1.3.0] - 2026-07-07
+## [1.4.0] - 2026-07-07
 
 ### Added
 - Typed model-selection errors (`ModelNotFoundError`, `GatedModelError`,
