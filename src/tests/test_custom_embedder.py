@@ -1,4 +1,5 @@
 """Integration coverage for the CustomEmbedder (.pt) path."""
+
 import json
 import os
 import sys

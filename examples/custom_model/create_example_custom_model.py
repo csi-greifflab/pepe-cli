@@ -3,12 +3,12 @@
 Example script showing how to create and use a custom model with EmbedAIRR.
 """
 
+import json
+import os
+
 import torch
 import torch.nn as nn
-import os
-import json
 from transformers import AutoTokenizer
-import numpy as np
 
 
 class ExampleProteinModel(nn.Module):
@@ -309,9 +309,9 @@ def main():
     # Create example model
     model_path = create_example_model_and_tokenizer()
 
-    # Create example data
-    fasta_file = create_example_fasta()
-    substring_file = create_example_substring()
+    # Create example data (written to disk for the demo; return paths unused here)
+    create_example_fasta()
+    create_example_substring()
 
     # Test loading the model
     print("\nTesting model loading...")
@@ -319,7 +319,7 @@ def main():
         model_data = torch.load(
             os.path.join(model_path, "pytorch_model.pt"), map_location="cpu"
         )
-        print(f"✓ Model loaded successfully")
+        print("✓ Model loaded successfully")
         print(f"✓ Model config: {model_data.get('config', {})}")
 
         # Test creating the model
@@ -327,20 +327,20 @@ def main():
             vocab_size=25, hidden_size=384, num_layers=6, num_heads=12, max_length=512
         )
         model.load_state_dict(model_data["model"])
-        print(f"✓ Model architecture created and weights loaded")
+        print("✓ Model architecture created and weights loaded")
 
         # Test tokenizer loading
         try:
             tokenizer = AutoTokenizer.from_pretrained(model_path)
             print(
-                f"✓ Tokenizer loaded successfully with AutoTokenizer.from_pretrained()"
+                "✓ Tokenizer loaded successfully with AutoTokenizer.from_pretrained()"
             )
             print(f"✓ Tokenizer vocab size: {len(tokenizer.get_vocab())}")
 
             # Test tokenization
             test_sequence = "ARNDCEQGHILKMFPSTWYV"
             tokens = tokenizer(test_sequence, return_tensors="pt")
-            print(f"✓ Tokenization test successful")
+            print("✓ Tokenization test successful")
             print(f"✓ Input sequence: {test_sequence}")
             print(f"✓ Tokenized shape: {tokens['input_ids'].shape}")
 
@@ -356,7 +356,7 @@ def main():
                 dummy_input, attention_mask=dummy_mask, output_hidden_states=True
             )
 
-        print(f"✓ Forward pass successful")
+        print("✓ Forward pass successful")
         print(f"✓ Output logits shape: {output.logits.shape}")
         print(
             f"✓ Number of hidden states: {len(output.hidden_states) if output.hidden_states else 0}"

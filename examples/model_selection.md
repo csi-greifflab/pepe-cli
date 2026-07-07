@@ -50,6 +50,6 @@ pepe \
     --model_name "examples/custom_model/example_protein_model" \ # pass the directory path containing custom PyTorch model
     --tokenizer_from "alchemab/antiberta2-cssp" \ # Uses the same tokenizer as AntiBERTa2-CSSP
     --fasta_path "src/tests/test_files/test.fasta" \
-    --output_path "src/tests/test_files/test_output" 
+    --output_path "src/tests/test_files/test_output"
 ```
 For details, see the [example_protein_model folder](examples/custom_model/example_protein_model) and the [python script](examples/custom_model/create_example_custom_model.py) for generating the example_protein_model files.

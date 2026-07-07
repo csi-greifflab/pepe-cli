@@ -17,6 +17,11 @@ truth that drives publishing).
 
 ## [Unreleased]
 
+### Removed
+- Dropped support for Python 3.8 and 3.9. The minimum supported version is now
+  **3.10** (`requires-python >=3.10`), matching the mypy/Ruff target. The CI unit
+  matrix, packaging classifiers, and the conda recipe were updated accordingly.
+
 ## [1.4.0] - 2026-07-07
 
 ### Added

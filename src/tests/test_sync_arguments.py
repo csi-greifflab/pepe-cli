@@ -1,4 +1,5 @@
 """Guard against drift between CLI flags, embed() API, and embedder args."""
+
 import argparse
 import ast
 import inspect
@@ -40,7 +41,9 @@ def _cli_dests():
 
 
 def _embed_params():
-    return {name for name in inspect.signature(api.embed).parameters if name != "kwargs"}
+    return {
+        name for name in inspect.signature(api.embed).parameters if name != "kwargs"
+    }
 
 
 def _args_dict_keys():

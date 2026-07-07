@@ -1,4 +1,5 @@
 """Regression tests: streaming disk output must match in-memory results."""
+
 import glob
 import os
 import sys
@@ -53,8 +54,7 @@ def in_memory_to_numpy(output_data, output_type, layer=LAYER, num_heads=NUM_HEAD
         return _stack_tensors(output_data)
     if output_type == "attention_head":
         return {
-            head: _stack_tensors(output_data[layer][head])
-            for head in range(num_heads)
+            head: _stack_tensors(output_data[layer][head]) for head in range(num_heads)
         }
     return _stack_tensors(output_data[layer])
 
@@ -66,23 +66,37 @@ def _output_dir(output_path, output_type):
 def load_streaming_array(output_path, output_type, layer=LAYER, head=None):
     output_dir = _output_dir(output_path, output_type)
     if output_type == "attention_model":
-        pattern = os.path.join(output_dir, f"{EXPERIMENT_NAME}_{MODEL_NAME}_attention_model.npy")
-        files = [pattern] if os.path.exists(pattern) else glob.glob(os.path.join(output_dir, "*.npy"))
+        pattern = os.path.join(
+            output_dir, f"{EXPERIMENT_NAME}_{MODEL_NAME}_attention_model.npy"
+        )
+        files = (
+            [pattern]
+            if os.path.exists(pattern)
+            else glob.glob(os.path.join(output_dir, "*.npy"))
+        )
     elif output_type == "attention_head":
         pattern = os.path.join(
             output_dir,
             f"{EXPERIMENT_NAME}_{MODEL_NAME}_attention_head_layer_{layer}_head_{head + 1}.npy",
         )
-        files = [pattern] if os.path.exists(pattern) else glob.glob(
-            os.path.join(output_dir, f"*_layer_{layer}_head_{head + 1}.npy")
+        files = (
+            [pattern]
+            if os.path.exists(pattern)
+            else glob.glob(
+                os.path.join(output_dir, f"*_layer_{layer}_head_{head + 1}.npy")
+            )
         )
     else:
         pattern = os.path.join(
             output_dir,
             f"{EXPERIMENT_NAME}_{MODEL_NAME}_{output_type}_layer_{layer}.npy",
         )
-        files = [pattern] if os.path.exists(pattern) else glob.glob(
-            os.path.join(output_dir, f"*_{output_type}_layer_{layer}.npy")
+        files = (
+            [pattern]
+            if os.path.exists(pattern)
+            else glob.glob(
+                os.path.join(output_dir, f"*_{output_type}_layer_{layer}.npy")
+            )
         )
     assert len(files) == 1, f"Expected one file for {output_type}, found {files}"
     return np.load(files[0])
@@ -103,7 +117,9 @@ def _assert_allclose(reference, streaming, output_type):
             np.testing.assert_allclose(
                 reference[head], streaming[head], rtol=1e-4, atol=1e-4
             )
-            assert np.any(streaming[head] != 0), f"{output_type} head {head} is all zeros"
+            assert np.any(streaming[head] != 0), (
+                f"{output_type} head {head} is all zeros"
+            )
     else:
         np.testing.assert_allclose(reference, streaming, rtol=1e-4, atol=1e-4)
         assert np.any(streaming != 0), f"{output_type} is all zeros"

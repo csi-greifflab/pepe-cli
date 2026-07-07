@@ -13,49 +13,49 @@ jobs:
       id-token: write  # Required for trusted publishing
       contents: write  # Required for creating releases
       pull-requests: read
-    
+
     steps:
     - uses: actions/checkout@v5
-    
+
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    
+
     - name: Install build dependencies
       run: |
         python3 -m pip install --upgrade pip
         pip install build
-    
+
     - name: Clean build artifacts
       run: |
         # Remove any cached files that might interfere with the build
         find . -name "__pycache__" -type d -exec rm -rf {} + || true
         find . -name "*.pyc" -type f -delete || true
         rm -rf dist/ build/ *.egg-info/ src/*.egg-info/ || true
-    
+
     - name: Verify version for main branch
       run: |
         # Extract metadata directly from __init__.py (avoids importing package deps like torch)
         CURRENT_VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
         PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
         MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
-        
+
         # Check if version contains -dev or -test (should not be in main branch)
         if [[ "$CURRENT_VERSION" == *"-dev"* ]] || [[ "$CURRENT_VERSION" == *"-test"* ]]; then
           echo "❌ Error: Version $CURRENT_VERSION contains development/test suffix"
           echo "Main branch should have a clean version number (e.g., 1.0.0, 1.2.3)"
           exit 1
         fi
-        
+
         echo "✅ Version validation passed: $CURRENT_VERSION"
         echo "Package name: $PACKAGE_NAME"
         echo "Module name: $MODULE_NAME"
         grep "__version__" src/pepe/__init__.py
-    
+
     - name: Build package
       run: python3 -m build
-    
+
     - name: Verify build artifacts
       run: |
         echo "📦 Build artifacts created:"
@@ -68,13 +68,13 @@ jobs:
           file "$file"
           echo "SHA256: $(sha256sum "$file" | cut -d' ' -f1)"
         done
-    
+
     - name: Publish to PyPI (Trusted Publishing)
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         verbose: true
         skip_existing: true
-    
+
     - name: Output installation command
       run: |
         PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
@@ -84,7 +84,7 @@ jobs:
         echo "pip install \"$PACKAGE_NAME==$CURRENT_VERSION\""
         echo "Or for the latest version:"
         echo "pip install \"$PACKAGE_NAME\""
-    
+
     - name: Wait for package availability
       run: |
         echo "Waiting for package to be available on PyPI..."
@@ -106,10 +106,10 @@ jobs:
           echo "Attempt $i failed, retrying in 30s..."
           sleep 30
         done
-        
+
         # Verify installation
         pip list | grep -i pepe
-        
+
         # Test basic import
         python3 -c "import $MODULE_NAME; print('Package imported successfully')"
 
@@ -132,13 +132,13 @@ jobs:
 
         echo "🎉 Package verification completed successfully!"
         echo "Package $PACKAGE_NAME version $CURRENT_VERSION is now available on PyPI!"
-    
+
     - name: Get version for release
       id: get_version
       run: |
         VERSION=$(grep -m1 '__version__ = ' src/pepe/__init__.py | sed 's/__version__ = "\(.*\)"/\1/')
         echo "version=$VERSION" >> $GITHUB_OUTPUT
-    
+
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v3
       with:
@@ -146,20 +146,20 @@ jobs:
         name: Release v${{ steps.get_version.outputs.version }}
         body: |
           Release of pepe-cli version ${{ steps.get_version.outputs.version }}
-          
+
           ## Installation
-          
+
           ### From PyPI (Recommended)
           ```bash
           pip install pepe-cli==${{ steps.get_version.outputs.version }}
           ```
-          
+
           ### From GitHub Release
           Download the wheel file and install:
           ```bash
           pip install pepe_cli-${{ steps.get_version.outputs.version }}-py3-none-any.whl
           ```
-          
+
         files: |
           dist/*.whl
           dist/*.tar.gz
@@ -174,7 +174,7 @@ jobs:
     needs: build-and-publish-main
     steps:
       - uses: actions/checkout@v5
-      
+
       - name: Set up Conda
         uses: conda-incubator/setup-miniconda@v4
         with:

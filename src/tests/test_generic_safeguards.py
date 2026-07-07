@@ -89,13 +89,19 @@ class TestGenericLengthSafety(unittest.TestCase):
     def _build_embedder(self, split_long_sequences):
         args = _make_args(self.fasta_path, split_long_sequences=split_long_sequences)
         model, tokenizer = _mock_model_tokenizer(max_position_embeddings=512)
-        with patch.object(
-            GenericHuggingFaceEmbedder,
-            "_initialize_model",
-            return_value=(model, tokenizer, 8, 2, 64),
-        ), patch.object(
-            GenericHuggingFaceEmbedder, "_load_data", return_value=(MagicMock(), 512)
-        ), patch.object(GenericHuggingFaceEmbedder, "_set_output_objects"):
+        with (
+            patch.object(
+                GenericHuggingFaceEmbedder,
+                "_initialize_model",
+                return_value=(model, tokenizer, 8, 2, 64),
+            ),
+            patch.object(
+                GenericHuggingFaceEmbedder,
+                "_load_data",
+                return_value=(MagicMock(), 512),
+            ),
+            patch.object(GenericHuggingFaceEmbedder, "_set_output_objects"),
+        ):
             return GenericHuggingFaceEmbedder(args)
 
     def test_splits_when_split_long_sequences_enabled(self):
@@ -107,7 +113,10 @@ class TestGenericLengthSafety(unittest.TestCase):
         with self.assertLogs("pepe.embedders.base_embedder", level="WARNING") as logs:
             self._build_embedder(split_long_sequences=False)
         self.assertTrue(
-            any("exceed the model's maximum allowed length" in msg for msg in logs.output)
+            any(
+                "exceed the model's maximum allowed length" in msg
+                for msg in logs.output
+            )
         )
 
 
