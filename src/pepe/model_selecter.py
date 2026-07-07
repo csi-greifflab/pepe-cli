@@ -1,39 +1,41 @@
+import os
+from typing import Tuple, Type
+
+from pepe.embedders.base_embedder import BaseEmbedder
 from pepe.embedders.custom_embedder import CustomEmbedder
 from pepe.model_errors import METL3DNotSupportedError, translate_hf_config_error
 
-import os
 import re
 
-
-def _get_esm_embedder():
+def _get_esm_embedder() -> Type[BaseEmbedder]:
     """Lazy import of ESM embedder to avoid loading heavy dependencies."""
     from pepe.embedders.esm_embedder import ESMEmbedder
 
     return ESMEmbedder
 
 
-def _get_esm2_embedder():
+def _get_esm2_embedder() -> Type[BaseEmbedder]:
     """Lazy import of ESM-2 embedder (HuggingFace transformers)."""
     from pepe.embedders.huggingface_embedder import ESM2Embedder
 
     return ESM2Embedder
 
 
-def _get_esmc_embedder():
+def _get_esmc_embedder() -> Type[BaseEmbedder]:
     """Lazy import of ESMC embedder (Biohub transformers fork)."""
     from pepe.embedders.huggingface_embedder import ESMCEmbedder
 
     return ESMCEmbedder
 
 
-def _get_huggingface_embedders():
+def _get_huggingface_embedders() -> Tuple[Type[BaseEmbedder], Type[BaseEmbedder]]:
     """Lazy import of HuggingFace embedders to avoid loading heavy dependencies."""
-    from pepe.embedders.huggingface_embedder import T5Embedder, Antiberta2Embedder
+    from pepe.embedders.huggingface_embedder import Antiberta2Embedder, T5Embedder
 
     return T5Embedder, Antiberta2Embedder
 
 
-def _get_generic_hf_embedder():
+def _get_generic_hf_embedder() -> Type[BaseEmbedder]:
     """Lazy import of the generic AutoModel-based HuggingFace fallback embedder."""
     from pepe.embedders.huggingface_embedder import GenericHuggingFaceEmbedder
 
@@ -103,7 +105,9 @@ def select_model(model_name, trust_remote_code=False):
     )
 
 
-def _select_hf_model(model_name, trust_remote_code=False):
+def _select_hf_model(
+    model_name: str, trust_remote_code: bool = False
+) -> Type[BaseEmbedder]:
     """Dispatch a HuggingFace repo id to an embedder by inspecting its config.
 
     Known architectures get their specialized embedder; everything else (BERT-like
@@ -119,9 +123,7 @@ def _select_hf_model(model_name, trust_remote_code=False):
             model_name, trust_remote_code=trust_remote_code
         )
     except Exception as e:
-        translate_hf_config_error(
-            model_name, e, trust_remote_code=trust_remote_code
-        )
+        translate_hf_config_error(model_name, e, trust_remote_code=trust_remote_code)
 
     model_type = (getattr(config, "model_type", "") or "").lower()
 
@@ -140,14 +142,16 @@ def _select_hf_model(model_name, trust_remote_code=False):
     # instead of raising.
     import logging
 
-    logging.getLogger("src.model_selecter").info(
+    logging.getLogger("pepe.model_selecter").info(
         f"No specialized embedder for architecture '{model_type or 'unknown'}'; "
         f"using the generic HuggingFace embedder for {model_name}."
     )
     return _get_generic_hf_embedder()
 
 
-_MODEL_MAX_LENGTH_SENTINEL = 1_000_000_000
+# Same threshold BaseEmbedder uses to treat HF sentinel model_max_length
+# (~1e30) as "no enforced limit"; kept as a single source of truth.
+_MODEL_MAX_LENGTH_SENTINEL = int(BaseEmbedder._UNKNOWN_MAX_LENGTH_THRESHOLD)
 
 
 def _format_max_length(config, tokenizer):
@@ -173,9 +177,9 @@ def _format_max_length(config, tokenizer):
 
 def report_model(model_name, trust_remote_code=False):
     """Load config + tokenizer only and print a compatibility summary."""
-    import pepe.utils
-
     from transformers import AutoConfig, AutoTokenizer
+
+    import pepe.utils
 
     try:
         config = AutoConfig.from_pretrained(
@@ -185,9 +189,7 @@ def report_model(model_name, trust_remote_code=False):
             model_name, trust_remote_code=trust_remote_code
         )
     except Exception as e:
-        translate_hf_config_error(
-            model_name, e, trust_remote_code=trust_remote_code
-        )
+        translate_hf_config_error(model_name, e, trust_remote_code=trust_remote_code)
 
     embedder_cls = select_model(model_name, trust_remote_code=trust_remote_code)
     embedder_name = embedder_cls.__name__

@@ -15,13 +15,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint & format (pre-commit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install pre-commit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pre-commit
+      # Cache the hook environments (ruff, etc.) keyed on the config.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+      # Enforce the same fixers + Ruff lint/format contributors run locally.
+      # Pre-push hooks (unit tests) and the opt-in mypy hook do NOT run here:
+      # the `unit` job already runs the tests and the `mypy` job runs mypy.
+      - name: Run pre-commit on all files
+        run: pre-commit run --all-files --show-diff-on-failure
+
   unit:
     name: Unit tests (mocked, no model downloads)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.10", "3.11"]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -32,16 +56,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .
-          pip install pytest
+          pip install pytest pytest-cov
       - name: Run fast unit tests
         run: |
           python -m pytest -v \
+            --cov=pepe \
+            --cov-report=term-missing \
             src/tests/test_parse_arguments.py \
+            src/tests/test_sync_arguments.py \
             src/tests/test_device_logic.py \
             src/tests/test_load_layers_default.py \
             src/tests/test_model_selection.py \
             src/tests/test_metl_dispatch.py \
-            src/tests/test_generic_safeguards.py
+            src/tests/test_generic_safeguards.py \
+            src/tests/test_custom_embedder.py
 
   integration:
     name: Integration tests (downloads a small model)
@@ -66,6 +94,10 @@ jobs:
           python -m pytest -v \
             src/tests/test_api_unittest.py \
             src/tests/test_splitting.py
+      - name: Run ESM-1 integration test (fair-esm, downloads esm1_t6_43M_UR50S)
+        run: |
+          pip install fair-esm
+          python -m pytest -v src/tests/test_esm1_integration.py
       - name: Run generic HuggingFace embedder integration test
         run: |
           GENERIC_HF_TEST=1 python -m pytest -v \
@@ -75,3 +107,33 @@ jobs:
           pip install "git+https://github.com/gitter-lab/metl-pretrained.git"
           METL_TEST=1 python -m pytest -v \
             src/tests/test_metl_integration.py
+      - name: Run T5 / AntiBERTa2 integration tests
+        run: |
+          T5_ANTIBERTA2_TEST=1 python -m pytest -v \
+            src/tests/test_t5_antiberta2_integration.py
+
+  mypy:
+    name: Type check (mypy, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install package and mypy
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install mypy
+      - name: Run mypy on public API surface
+        run: |
+          mypy src/pepe/api.py \
+            src/pepe/model_selecter.py \
+            src/pepe/model_errors.py \
+            src/pepe/embedders/base_embedder.py \
+            src/pepe/embedders/huggingface_embedder.py \
+            src/pepe/embedders/custom_embedder.py \
+            src/pepe/embedders/esm_embedder.py \
+            src/pepe/utils.py

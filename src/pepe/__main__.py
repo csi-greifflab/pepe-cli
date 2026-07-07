@@ -1,8 +1,9 @@
 import logging
 import sys
+
 from pepe.parse_arguments import parse_arguments
 
-logger = logging.getLogger("src.__main__")
+logger = logging.getLogger("pepe.__main__")
 
 
 def main():

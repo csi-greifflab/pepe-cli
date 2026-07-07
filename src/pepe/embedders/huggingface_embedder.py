@@ -1,6 +1,9 @@
 import logging
 import os
+from typing import Any, Dict, List, Optional, Tuple
+
 import torch
+
 import pepe.utils
 from pepe.embedders.base_embedder import BaseEmbedder
 
@@ -8,18 +11,35 @@ from pepe.embedders.base_embedder import BaseEmbedder
 # Lazy imports to avoid loading heavy dependencies at import time
 def _import_transformers():
     """Lazy import of transformers components to avoid loading issues."""
+    import importlib
+
     try:
-        from transformers import T5EncoderModel, T5Tokenizer
-        from transformers import RoFormerTokenizer, RoFormerModel
+        from transformers import T5EncoderModel
+
+        try:
+            _t5_fast = importlib.import_module(
+                "transformers.models.t5.tokenization_t5_fast"
+            )
+            T5TokenizerFast = _t5_fast.T5TokenizerFast
+        except ModuleNotFoundError:
+            import transformers
+
+            T5TokenizerFast = getattr(transformers, "T5TokenizerFast")
+        from transformers import (
+            AutoModel,
+            AutoModelForCausalLM,
+            AutoModelForMaskedLM,
+            AutoTokenizer,
+            RoFormerModel,
+            RoFormerTokenizer,
+        )
         from transformers.models.roformer.modeling_roformer import (
             RoFormerSinusoidalPositionalEmbedding,
         )
-        from transformers import AutoModel, AutoTokenizer, AutoModelForCausalLM
-        from transformers import AutoModelForMaskedLM
 
         return (
             T5EncoderModel,
-            T5Tokenizer,
+            T5TokenizerFast,
             RoFormerTokenizer,
             RoFormerModel,
             RoFormerSinusoidalPositionalEmbedding,
@@ -38,11 +58,11 @@ def _import_transformers():
 # Set max_split_size_mb
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 
-logger = logging.getLogger("src.embedders.huggingface_embedder")
+logger = logging.getLogger("pepe.embedders.huggingface_embedder")
 
 
 class HuggingfaceEmbedder(BaseEmbedder):
-    def __init__(self, args):
+    def __init__(self, args: Any) -> None:
         super().__init__(args)
         if self.return_logits:
             logger.warning(
@@ -51,9 +71,9 @@ class HuggingfaceEmbedder(BaseEmbedder):
             self.return_logits = False
             self.output_types.remove("logits")
 
-    def _load_layers(self, layers):
+    def _load_layers(self, layers: Optional[List[int]] = None) -> List[int]:
         """Check if the specified representation layers are valid."""
-        num_layers = self.num_layers  # type: ignore
+        num_layers = self.num_layers
         if layers is None:
             return list(range(1, num_layers + 1))
         if not layers:
@@ -62,15 +82,21 @@ class HuggingfaceEmbedder(BaseEmbedder):
         layers = [(i + num_layers + 1) % (num_layers + 1) for i in layers]
         return layers
 
-    def _load_data(self, sequences, substring_dict, bracket_type):
+    def _load_data(
+        self,
+        sequences: Optional[Dict[str, str]] = None,
+        substring_dict: Optional[Dict[str, str]] = None,
+        bracket_type: Optional[Any] = None,
+    ) -> Tuple[Any, Any]:
         """Tokenize sequences and create a DataLoader."""
+        assert sequences is not None and bracket_type is not None
         # Tokenize sequences
         dataset = pepe.utils.HuggingFaceDataset(
             sequences,
             substring_dict,
             self.context,
             bracket_type,
-            self.tokenizer,  # type: ignore
+            self.tokenizer,
             self.max_input_length,
             add_special_tokens=not self.disable_special_tokens,
         )
@@ -88,13 +114,14 @@ class HuggingfaceEmbedder(BaseEmbedder):
 
     def _compute_outputs(
         self,
-        model,
-        toks,
-        attention_mask,
-        return_embeddings,
-        return_contacts,
-        return_logits=False,
-    ):
+        model: Any,
+        toks: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
+        return_embeddings: bool,
+        return_contacts: bool,
+        return_logits: bool = False,
+    ) -> Tuple[Optional[Any], Optional[Any], Optional[Any]]:
+        assert self.layers is not None
         outputs = model(
             input_ids=toks,
             attention_mask=attention_mask,
@@ -103,8 +130,8 @@ class HuggingfaceEmbedder(BaseEmbedder):
         )
         if return_contacts:
             attention_matrices = (
-                torch.stack(outputs.attentions)  # type: ignore
-                .to(self._precision_to_dtype(self.precision, "torch"))  # type: ignore
+                torch.stack(outputs.attentions)
+                .to(self._precision_to_dtype(self.precision, "torch"))
                 .cpu()
             )  # stack attention matrices across layers
             torch.cuda.empty_cache()
@@ -115,13 +142,11 @@ class HuggingfaceEmbedder(BaseEmbedder):
             hidden_states = outputs.hidden_states
             if isinstance(hidden_states, torch.Tensor):
                 representations = {
-                    layer: hidden_states[layer].to(dtype).cpu()
-                    for layer in self.layers  # type: ignore
+                    layer: hidden_states[layer].to(dtype).cpu() for layer in self.layers
                 }
             else:
                 representations = {
-                    layer: hidden_states[layer].to(dtype).cpu()
-                    for layer in self.layers  # type: ignore
+                    layer: hidden_states[layer].to(dtype).cpu() for layer in self.layers
                 }
             torch.cuda.empty_cache()
         else:
@@ -131,7 +156,7 @@ class HuggingfaceEmbedder(BaseEmbedder):
 
 
 class Antiberta2Embedder(HuggingfaceEmbedder):
-    def __init__(self, args):
+    def __init__(self, args: Any) -> None:
         super().__init__(args)
         self.sequences = pepe.utils.fasta_to_dict(args.fasta_path)
         self.num_sequences = len(self.sequences)
@@ -160,10 +185,18 @@ class Antiberta2Embedder(HuggingfaceEmbedder):
         )
         self._set_output_objects()
         if not self.split_long_sequences:
-            assert self.max_input_length <= 256, "AntiBERTa2 only supports max_length <= 256. Use --split_long_sequences to process longer sequences."
+            assert self.max_input_length <= 256, (
+                "AntiBERTa2 only supports max_length <= 256. Use --split_long_sequences to process longer sequences."
+            )
 
-    def _initialize_model(self, model_link="alchemab/antiberta2-cssp"):
+    def _initialize_model(
+        self,
+        model_link: Optional[str] = None,
+        tokenizer_path: Optional[str] = None,
+    ) -> Tuple[Any, ...]:
         """Initialize the model, tokenizer, and device."""
+        if model_link is None:
+            model_link = "alchemab/antiberta2-cssp"
         if torch.cuda.is_available() and self.device.type == "cuda":
             device = torch.device("cuda")
             logger.info("Transferred model to GPU")
@@ -174,7 +207,7 @@ class Antiberta2Embedder(HuggingfaceEmbedder):
         # Lazy import transformers components
         (
             T5EncoderModel,
-            T5Tokenizer,
+            T5TokenizerFast,
             RoFormerTokenizer,
             RoFormerModel,
             RoFormerSinusoidalPositionalEmbedding,
@@ -185,7 +218,7 @@ class Antiberta2Embedder(HuggingfaceEmbedder):
         ) = _import_transformers()
 
         tokenizer = RoFormerTokenizer.from_pretrained(model_link, use_fast=True)
-        model = RoFormerModel.from_pretrained(model_link).to(device)  # type: ignore
+        model = RoFormerModel.from_pretrained(model_link).to(device)
         model.eval()
         num_heads = model.config.num_attention_heads
         num_layers = model.config.num_hidden_layers
@@ -194,9 +227,9 @@ class Antiberta2Embedder(HuggingfaceEmbedder):
 
 
 class T5Embedder(HuggingfaceEmbedder):
-    def __init__(self, args):
+    def __init__(self, args: Any) -> None:
         super().__init__(args)
-        self.sequences = self.fasta_to_dict(args.fasta_path)  # type: ignore
+        self.sequences = pepe.utils.fasta_to_dict(args.fasta_path)
         self.num_sequences = len(self.sequences)
         (
             self.model,
@@ -226,9 +259,14 @@ class T5Embedder(HuggingfaceEmbedder):
         )
         return valid_tokens
 
-    def _initialize_model(self, model_link="Rostlab/prot_t5_xl_half_uniref50-enc"):
+    def _initialize_model(
+        self,
+        model_link: Optional[str] = None,
+        tokenizer_path: Optional[str] = None,
+    ) -> Tuple[Any, ...]:
         """Initialize the model, tokenizer, and device."""
-
+        if model_link is None:
+            model_link = "Rostlab/prot_t5_xl_half_uniref50-enc"
         if torch.cuda.is_available() and self.device.type == "cuda":
             device = torch.device("cuda")
             logger.info("Transferred model to GPU")
@@ -239,7 +277,7 @@ class T5Embedder(HuggingfaceEmbedder):
         # Lazy import transformers components
         (
             T5EncoderModel,
-            T5Tokenizer,
+            T5TokenizerFast,
             RoFormerTokenizer,
             RoFormerModel,
             RoFormerSinusoidalPositionalEmbedding,
@@ -249,12 +287,31 @@ class T5Embedder(HuggingfaceEmbedder):
             AutoModelForMaskedLM,
         ) = _import_transformers()
 
-        tokenizer = T5Tokenizer.from_pretrained(
-            model_link, use_fast=True, trust_remote_code=self.trust_remote_code
-        )
+        try:
+            tokenizer = T5TokenizerFast.from_pretrained(
+                model_link, trust_remote_code=self.trust_remote_code
+            )
+        except Exception as fast_error:
+            # Some ProtT5 checkpoints (e.g. Rostlab/prot_t5_xl_half_uniref50-enc)
+            # ship a SentencePiece model that cannot be converted to a fast
+            # tokenizer ("Unigram ... trained with a different algorithm"). Fall
+            # back to the slow T5Tokenizer so the production ProtT5 path keeps
+            # working, while fast-only Hub checkpoints still use T5TokenizerFast.
+            logger.info(
+                "T5TokenizerFast unavailable for %s (%s); falling back to the "
+                "slow T5Tokenizer.",
+                model_link,
+                fast_error,
+            )
+            import importlib
+
+            _t5_slow = importlib.import_module("transformers.models.t5.tokenization_t5")
+            tokenizer = _t5_slow.T5Tokenizer.from_pretrained(
+                model_link, legacy=True, trust_remote_code=self.trust_remote_code
+            )
         model = T5EncoderModel.from_pretrained(
             model_link, trust_remote_code=self.trust_remote_code
-        ).to(device)  # type: ignore
+        ).to(device)
         model.eval()
         num_heads = model.config.num_heads
         num_layers = model.config.num_layers
@@ -271,7 +328,7 @@ def _resolve_esm2_model_link(model_name):
 class ESM2Embedder(HuggingfaceEmbedder):
     """ESM-2 embedder using HuggingFace transformers instead of fair-esm."""
 
-    def __init__(self, args):
+    def __init__(self, args: Any) -> None:
         BaseEmbedder.__init__(self, args)
         self.sequences = pepe.utils.fasta_to_dict(args.fasta_path)
         self.num_sequences = len(self.sequences)
@@ -304,7 +361,13 @@ class ESM2Embedder(HuggingfaceEmbedder):
     def _get_valid_tokens(self):
         return {tok for tok in self.tokenizer.get_vocab().keys() if len(tok) == 1}
 
-    def _load_data(self, sequences, substring_dict, bracket_type):
+    def _load_data(
+        self,
+        sequences: Optional[Dict[str, str]] = None,
+        substring_dict: Optional[Dict[str, str]] = None,
+        bracket_type: Optional[Any] = None,
+    ) -> Tuple[Any, Any]:
+        assert sequences is not None and bracket_type is not None
         dataset = pepe.utils.HuggingFaceDataset(
             sequences,
             substring_dict,
@@ -326,7 +389,12 @@ class ESM2Embedder(HuggingfaceEmbedder):
         logger.info("Finished tokenizing and batching sequences")
         return data_loader, max_length
 
-    def _initialize_model(self, model_name):
+    def _initialize_model(
+        self,
+        model_link: Optional[str] = None,
+        tokenizer_path: Optional[str] = None,
+    ) -> Tuple[Any, ...]:
+        model_name = model_link or self.model_name
         model_link = _resolve_esm2_model_link(model_name)
         if torch.cuda.is_available() and self.device.type == "cuda":
             device = torch.device("cuda")
@@ -337,7 +405,7 @@ class ESM2Embedder(HuggingfaceEmbedder):
 
         (
             T5EncoderModel,
-            T5Tokenizer,
+            T5TokenizerFast,
             RoFormerTokenizer,
             RoFormerModel,
             RoFormerSinusoidalPositionalEmbedding,
@@ -356,9 +424,9 @@ class ESM2Embedder(HuggingfaceEmbedder):
             model_kwargs["attn_implementation"] = "eager"
 
         if self.return_logits:
-            model = AutoModelForMaskedLM.from_pretrained(
-                model_link, **model_kwargs
-            ).to(device)
+            model = AutoModelForMaskedLM.from_pretrained(model_link, **model_kwargs).to(
+                device
+            )
         else:
             model = AutoModel.from_pretrained(model_link, **model_kwargs).to(device)
         model.eval()
@@ -371,13 +439,14 @@ class ESM2Embedder(HuggingfaceEmbedder):
 
     def _compute_outputs(
         self,
-        model,
-        toks,
-        attention_mask,
-        return_embeddings,
-        return_contacts,
-        return_logits=False,
-    ):
+        model: Any,
+        toks: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
+        return_embeddings: bool,
+        return_contacts: bool,
+        return_logits: bool = False,
+    ) -> Tuple[Optional[Any], Optional[Any], Optional[Any]]:
+        assert self.layers is not None
         outputs = model(
             input_ids=toks,
             attention_mask=attention_mask,
@@ -386,8 +455,9 @@ class ESM2Embedder(HuggingfaceEmbedder):
         )
         if return_logits:
             logits = (
-                outputs.logits
-                .to(dtype=self._precision_to_dtype(self.precision, "torch"))
+                outputs.logits.to(
+                    dtype=self._precision_to_dtype(self.precision, "torch")
+                )
                 .permute(2, 0, 1)
                 .cpu()
             )
@@ -397,8 +467,8 @@ class ESM2Embedder(HuggingfaceEmbedder):
 
         if return_contacts:
             attention_matrices = (
-                torch.stack(outputs.attentions)  # type: ignore
-                .to(self._precision_to_dtype(self.precision, "torch"))  # type: ignore
+                torch.stack(outputs.attentions)
+                .to(self._precision_to_dtype(self.precision, "torch"))
                 .cpu()
             )
             torch.cuda.empty_cache()
@@ -410,7 +480,7 @@ class ESM2Embedder(HuggingfaceEmbedder):
                 layer: outputs.hidden_states[layer]
                 .to(self._precision_to_dtype(self.precision, "torch"))
                 .cpu()
-                for layer in self.layers  # type: ignore
+                for layer in self.layers
             }
             torch.cuda.empty_cache()
         else:
@@ -429,7 +499,7 @@ def _get_config_attr(config, *names, default=None):
 class ESMCEmbedder(HuggingfaceEmbedder):
     """ESMC embedder using Biohub transformers fork (model_type esmc)."""
 
-    def __init__(self, args):
+    def __init__(self, args: Any) -> None:
         BaseEmbedder.__init__(self, args)
         self.sequences = pepe.utils.fasta_to_dict(args.fasta_path)
         self.num_sequences = len(self.sequences)
@@ -461,7 +531,13 @@ class ESMCEmbedder(HuggingfaceEmbedder):
     def _get_valid_tokens(self):
         return {tok for tok in self.tokenizer.get_vocab().keys() if len(tok) == 1}
 
-    def _load_data(self, sequences, substring_dict, bracket_type):
+    def _load_data(
+        self,
+        sequences: Optional[Dict[str, str]] = None,
+        substring_dict: Optional[Dict[str, str]] = None,
+        bracket_type: Optional[Any] = None,
+    ) -> Tuple[Any, Any]:
+        assert sequences is not None and bracket_type is not None
         dataset = pepe.utils.HuggingFaceDataset(
             sequences,
             substring_dict,
@@ -484,7 +560,12 @@ class ESMCEmbedder(HuggingfaceEmbedder):
         logger.info("Finished tokenizing and batching sequences")
         return data_loader, max_length
 
-    def _initialize_model(self, model_link):
+    def _initialize_model(
+        self,
+        model_link: Optional[str] = None,
+        tokenizer_path: Optional[str] = None,
+    ) -> Tuple[Any, ...]:
+        assert model_link is not None
         if torch.cuda.is_available() and self.device.type == "cuda":
             device = torch.device("cuda")
             logger.info("Transferred model to GPU")
@@ -494,7 +575,7 @@ class ESMCEmbedder(HuggingfaceEmbedder):
 
         (
             T5EncoderModel,
-            T5Tokenizer,
+            T5TokenizerFast,
             RoFormerTokenizer,
             RoFormerModel,
             RoFormerSinusoidalPositionalEmbedding,
@@ -511,9 +592,9 @@ class ESMCEmbedder(HuggingfaceEmbedder):
             model_kwargs["attn_implementation"] = "eager"
 
         if self.return_logits:
-            model = AutoModelForMaskedLM.from_pretrained(
-                model_link, **model_kwargs
-            ).to(device)
+            model = AutoModelForMaskedLM.from_pretrained(model_link, **model_kwargs).to(
+                device
+            )
         else:
             model = AutoModel.from_pretrained(model_link, **model_kwargs).to(device)
         model.eval()
@@ -525,16 +606,14 @@ class ESMCEmbedder(HuggingfaceEmbedder):
         num_layers = _get_config_attr(
             config, "num_hidden_layers", "n_layers", "num_layers"
         )
-        embedding_size = _get_config_attr(
-            config, "hidden_size", "d_model", "embed_dim"
-        )
+        embedding_size = _get_config_attr(config, "hidden_size", "d_model", "embed_dim")
         return model, tokenizer, num_heads, num_layers, embedding_size
 
 
 class GenericHuggingFaceEmbedder(HuggingfaceEmbedder):
     """Generic HuggingFace embedder that can handle models with unknown architectures using AutoModel and AutoTokenizer."""
 
-    def __init__(self, args):
+    def __init__(self, args: Any) -> None:
         super().__init__(args)
         self.sequences = pepe.utils.fasta_to_dict(args.fasta_path)
         self.num_sequences = len(self.sequences)
@@ -580,7 +659,12 @@ class GenericHuggingFaceEmbedder(HuggingfaceEmbedder):
             return valid_tokens
         return set()
 
-    def _initialize_model(self, model_link):
+    def _initialize_model(
+        self,
+        model_link: Optional[str] = None,
+        tokenizer_path: Optional[str] = None,
+    ) -> Tuple[Any, ...]:
+        assert model_link is not None
         """Initialize the model, tokenizer, and device using AutoModel and AutoTokenizer."""
         if torch.cuda.is_available() and self.device.type == "cuda":
             device = torch.device("cuda")
@@ -592,7 +676,7 @@ class GenericHuggingFaceEmbedder(HuggingfaceEmbedder):
         # Lazy import transformers components
         (
             T5EncoderModel,
-            T5Tokenizer,
+            T5TokenizerFast,
             RoFormerTokenizer,
             RoFormerModel,
             RoFormerSinusoidalPositionalEmbedding,
