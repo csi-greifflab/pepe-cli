@@ -1,10 +1,19 @@
-from setuptools import setup, find_packages
 import os
 import sys
 
+from setuptools import find_packages, setup
+
 # Add src to the Python path to import metadata
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-from pepe import __version__, __package_name__, __author__, __author_email__, __description__, __homepage__, __module_name__
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+from pepe import (
+    __author__,
+    __author_email__,
+    __description__,
+    __homepage__,
+    __module_name__,
+    __package_name__,
+    __version__,
+)
 
 
 # Read the README file for long description
@@ -32,14 +41,12 @@ setup(
         "Operating System :: Linux",
         "Operating System :: macOS",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
         "Topic :: Scientific/Engineering :: Bio-Informatics",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
-    python_requires=">=3.8",
+    python_requires=">=3.10",
     install_requires=[
         "torch>=1.9.0",
         "transformers>=4.20.0",
@@ -49,6 +56,9 @@ setup(
         "alive_progress",
         "rjieba",
     ],
+    extras_require={
+        "esm": ["fair-esm"],
+    },
     entry_points={
         "console_scripts": [
             f"pepe = {__module_name__}.__main__:main",

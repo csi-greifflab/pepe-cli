@@ -2,12 +2,14 @@ import logging
 import sys
 
 try:
-    from pepe.api import embed  # Exported to top-level; requires torch at runtime
+    from pepe.api import (
+        embed,  # noqa: F401  (re-exported to top level; needs torch at runtime)
+    )
 except ImportError:
     pass
 
 # Package metadata - single source of truth
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 __package_name__ = "pepe-cli"
 __module_name__ = "pepe"
 __author__ = "Jahn Zhong"

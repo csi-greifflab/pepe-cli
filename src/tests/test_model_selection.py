@@ -6,7 +6,6 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from pepe.model_selecter import select_model, report_model
 from pepe.model_errors import (
     ESMCForkRequiredError,
     GatedModelError,
@@ -16,6 +15,7 @@ from pepe.model_errors import (
     RemoteCodeRequiredError,
     UnsupportedArchitectureError,
 )
+from pepe.model_selecter import report_model, select_model
 
 
 def _config(model_type):
@@ -161,9 +161,7 @@ class TestTypedConfigErrors(unittest.TestCase):
     def test_trust_remote_code_skips_remote_code_error_when_flag_set(self):
         with patch(
             "transformers.AutoConfig.from_pretrained",
-            side_effect=ValueError(
-                "Pass `trust_remote_code=True` to load this model."
-            ),
+            side_effect=ValueError("Pass `trust_remote_code=True` to load this model."),
         ):
             with self.assertRaises(ModelSelectionError):
                 select_model(self.MODEL, trust_remote_code=True)
@@ -178,7 +176,9 @@ class TestBareWeightNames(unittest.TestCase):
         # Must not touch the network: AutoConfig would raise if called.
         with patch(
             "transformers.AutoConfig.from_pretrained",
-            side_effect=AssertionError("AutoConfig should not be called for bare names"),
+            side_effect=AssertionError(
+                "AutoConfig should not be called for bare names"
+            ),
         ):
             self.assertIs(select_model("esm2_t6_8M_UR50D"), ESM2Embedder)
 
@@ -187,7 +187,9 @@ class TestBareWeightNames(unittest.TestCase):
 
         with patch(
             "transformers.AutoConfig.from_pretrained",
-            side_effect=AssertionError("AutoConfig should not be called for bare names"),
+            side_effect=AssertionError(
+                "AutoConfig should not be called for bare names"
+            ),
         ):
             self.assertIs(select_model("esm1b_t33_650M_UR50S"), ESMEmbedder)
 
@@ -201,12 +203,11 @@ class TestTrustRemoteCode(unittest.TestCase):
         with patch("transformers.AutoConfig.from_pretrained") as mock_config:
             mock_config.return_value = _config("bert")
             select_model("someuser/model-x", trust_remote_code=True)
-        mock_config.assert_called_once_with(
-            "someuser/model-x", trust_remote_code=True
-        )
+        mock_config.assert_called_once_with("someuser/model-x", trust_remote_code=True)
 
     def test_generic_embedder_passes_trust_remote_code_to_from_pretrained(self):
         import torch
+
         from pepe.embedders.huggingface_embedder import GenericHuggingFaceEmbedder
 
         recorded = {"tokenizer": None, "model": None}
@@ -263,15 +264,17 @@ class TestReportModel(unittest.TestCase):
         mock_tokenizer.model_max_length = 512
         mock_tokenizer.encode.return_value = [1, 2, 3]
 
-        with patch(
-            "transformers.AutoConfig.from_pretrained", return_value=mock_config
-        ), patch(
-            "transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer
-        ), patch(
-            "pepe.model_selecter.select_model",
-            return_value=MagicMock(__name__="GenericHuggingFaceEmbedder"),
-        ), patch(
-            "pepe.utils.is_character_tokenizer", return_value=False
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch(
+                "transformers.AutoTokenizer.from_pretrained",
+                return_value=mock_tokenizer,
+            ),
+            patch(
+                "pepe.model_selecter.select_model",
+                return_value=MagicMock(__name__="GenericHuggingFaceEmbedder"),
+            ),
+            patch("pepe.utils.is_character_tokenizer", return_value=False),
         ):
             buf = StringIO()
             with patch("sys.stdout", buf):

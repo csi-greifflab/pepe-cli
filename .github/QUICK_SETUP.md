@@ -6,7 +6,7 @@
 ```
 GitHub Repository → Settings → Environments → New environment
 Name: testpypi
-Protection rules: 
+Protection rules:
   - Deployment branches: test
   - Save protection rules
 ```

@@ -1,9 +1,14 @@
+import os
+import re
+from typing import Tuple, Type
+
 from pepe.embedders.base_embedder import BaseEmbedder
 from pepe.embedders.custom_embedder import CustomEmbedder
-from pepe.model_errors import translate_hf_config_error
-
-import os
-from typing import Any, Tuple, Type
+from pepe.model_errors import (
+    METL3DNotSupportedError,
+    ModelSelectionError,
+    translate_hf_config_error,
+)
 
 
 def _get_esm_embedder() -> Type[BaseEmbedder]:
@@ -29,7 +34,7 @@ def _get_esmc_embedder() -> Type[BaseEmbedder]:
 
 def _get_huggingface_embedders() -> Tuple[Type[BaseEmbedder], Type[BaseEmbedder]]:
     """Lazy import of HuggingFace embedders to avoid loading heavy dependencies."""
-    from pepe.embedders.huggingface_embedder import T5Embedder, Antiberta2Embedder
+    from pepe.embedders.huggingface_embedder import Antiberta2Embedder, T5Embedder
 
     return T5Embedder, Antiberta2Embedder
 
@@ -41,9 +46,35 @@ def _get_generic_hf_embedder() -> Type[BaseEmbedder]:
     return GenericHuggingFaceEmbedder
 
 
-def select_model(
-    model_name: str, trust_remote_code: bool = False
-) -> Type[BaseEmbedder]:
+def _get_metl_embedder():
+    """Lazy import of METL embedder (metl-pretrained backend)."""
+    from pepe.embedders.metl_embedder import METLEmbedder
+
+    return METLEmbedder
+
+
+def _is_metl_model(model_name):
+    if re.match(r"^metl[-_]", model_name, re.I):
+        return True
+    if model_name.lower() in ("gitter-lab/metl", "gitter-lab/metl-pretrained"):
+        return True
+    return False
+
+
+def _validate_metl_model_name(model_name):
+    if model_name.lower() in ("gitter-lab/metl", "gitter-lab/metl-pretrained"):
+        raise ModelSelectionError(
+            "gitter-lab/METL is the HuggingFace wrapper and is not supported by PEPE. "
+            "Use a metl-pretrained identifier instead (e.g. metl-g-20m-1d)."
+        )
+    if re.search(r"[-_]3d(?:[-_]|$)", model_name, re.I):
+        raise METL3DNotSupportedError(
+            "METL 3D models (requiring PDB structures) are not supported by PEPE. "
+            "Use a 1D model identifier (e.g. metl-g-20m-1d)."
+        )
+
+
+def select_model(model_name, trust_remote_code=False):
     # 1. Local checkpoints / directories take precedence over any name heuristic,
     #    so a local file or folder is never mistaken for a HuggingFace repo id or a
     #    bare weight name (e.g. a directory called "my_esm2_run/").
@@ -57,6 +88,10 @@ def select_model(
         )
     ):
         return CustomEmbedder
+
+    if _is_metl_model(model_name):
+        _validate_metl_model_name(model_name)
+        return _get_metl_embedder()
 
     # 2. Anything shaped like a HuggingFace repo id (username/model-name) is
     #    dispatched by inspecting its config, not its name. This is the primary
@@ -97,9 +132,7 @@ def _select_hf_model(
             model_name, trust_remote_code=trust_remote_code
         )
     except Exception as e:
-        translate_hf_config_error(
-            model_name, e, trust_remote_code=trust_remote_code
-        )
+        translate_hf_config_error(model_name, e, trust_remote_code=trust_remote_code)
 
     model_type = (getattr(config, "model_type", "") or "").lower()
 
@@ -153,9 +186,9 @@ def _format_max_length(config, tokenizer):
 
 def report_model(model_name, trust_remote_code=False):
     """Load config + tokenizer only and print a compatibility summary."""
-    import pepe.utils
-
     from transformers import AutoConfig, AutoTokenizer
+
+    import pepe.utils
 
     try:
         config = AutoConfig.from_pretrained(
@@ -165,9 +198,7 @@ def report_model(model_name, trust_remote_code=False):
             model_name, trust_remote_code=trust_remote_code
         )
     except Exception as e:
-        translate_hf_config_error(
-            model_name, e, trust_remote_code=trust_remote_code
-        )
+        translate_hf_config_error(model_name, e, trust_remote_code=trust_remote_code)
 
     embedder_cls = select_model(model_name, trust_remote_code=trust_remote_code)
     embedder_name = embedder_cls.__name__

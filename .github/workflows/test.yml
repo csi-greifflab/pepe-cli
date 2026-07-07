@@ -14,14 +14,41 @@ concurrency:
   group: tests-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  lint:
+    name: Lint & format (pre-commit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install pre-commit
+        run: |
+          python -m pip install --upgrade pip
+          pip install pre-commit
+      # Cache the hook environments (ruff, etc.) keyed on the config.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+      # Enforce the same fixers + Ruff lint/format contributors run locally.
+      # Pre-push hooks (unit tests) and the opt-in mypy hook do NOT run here:
+      # the `unit` job already runs the tests and the `mypy` job runs mypy.
+      - name: Run pre-commit on all files
+        run: pre-commit run --all-files --show-diff-on-failure
+
   unit:
     name: Unit tests (mocked, no model downloads)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.10", "3.11"]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -43,6 +70,8 @@ jobs:
             src/tests/test_device_logic.py \
             src/tests/test_load_layers_default.py \
             src/tests/test_model_selection.py \
+            src/tests/test_metl_dispatch.py \
+            src/tests/test_metl_hooks.py \
             src/tests/test_generic_safeguards.py \
             src/tests/test_custom_embedder.py
 
@@ -77,6 +106,12 @@ jobs:
         run: |
           GENERIC_HF_TEST=1 python -m pytest -v \
             src/tests/test_generic_hf_integration.py
+      - name: Run METL integration test
+        if: ${{ vars.ENABLE_METL_TESTS == '1' }}
+        run: |
+          pip install "git+https://github.com/gitter-lab/metl-pretrained.git@52358614c4b412e81e19e300485e8b85123bd903"
+          METL_TEST=1 python -m pytest -v \
+            src/tests/test_metl_integration.py
       - name: Run T5 / AntiBERTa2 integration tests
         run: |
           T5_ANTIBERTA2_TEST=1 python -m pytest -v \

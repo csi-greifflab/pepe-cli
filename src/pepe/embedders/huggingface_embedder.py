@@ -1,9 +1,11 @@
 import logging
 import os
+from typing import Any, Dict, List, Optional, Tuple
+
 import torch
+
 import pepe.utils
 from pepe.embedders.base_embedder import BaseEmbedder
-from typing import Any, Dict, List, Optional, Tuple
 
 
 # Lazy imports to avoid loading heavy dependencies at import time
@@ -13,6 +15,7 @@ def _import_transformers():
 
     try:
         from transformers import T5EncoderModel
+
         try:
             _t5_fast = importlib.import_module(
                 "transformers.models.t5.tokenization_t5_fast"
@@ -22,12 +25,17 @@ def _import_transformers():
             import transformers
 
             T5TokenizerFast = getattr(transformers, "T5TokenizerFast")
-        from transformers import RoFormerTokenizer, RoFormerModel
+        from transformers import (
+            AutoModel,
+            AutoModelForCausalLM,
+            AutoModelForMaskedLM,
+            AutoTokenizer,
+            RoFormerModel,
+            RoFormerTokenizer,
+        )
         from transformers.models.roformer.modeling_roformer import (
             RoFormerSinusoidalPositionalEmbedding,
         )
-        from transformers import AutoModel, AutoTokenizer, AutoModelForCausalLM
-        from transformers import AutoModelForMaskedLM
 
         return (
             T5EncoderModel,
@@ -134,13 +142,11 @@ class HuggingfaceEmbedder(BaseEmbedder):
             hidden_states = outputs.hidden_states
             if isinstance(hidden_states, torch.Tensor):
                 representations = {
-                    layer: hidden_states[layer].to(dtype).cpu()
-                    for layer in self.layers
+                    layer: hidden_states[layer].to(dtype).cpu() for layer in self.layers
                 }
             else:
                 representations = {
-                    layer: hidden_states[layer].to(dtype).cpu()
-                    for layer in self.layers
+                    layer: hidden_states[layer].to(dtype).cpu() for layer in self.layers
                 }
             torch.cuda.empty_cache()
         else:
@@ -179,7 +185,9 @@ class Antiberta2Embedder(HuggingfaceEmbedder):
         )
         self._set_output_objects()
         if not self.split_long_sequences:
-            assert self.max_input_length <= 256, "AntiBERTa2 only supports max_length <= 256. Use --split_long_sequences to process longer sequences."
+            assert self.max_input_length <= 256, (
+                "AntiBERTa2 only supports max_length <= 256. Use --split_long_sequences to process longer sequences."
+            )
 
     def _initialize_model(
         self,
@@ -297,9 +305,7 @@ class T5Embedder(HuggingfaceEmbedder):
             )
             import importlib
 
-            _t5_slow = importlib.import_module(
-                "transformers.models.t5.tokenization_t5"
-            )
+            _t5_slow = importlib.import_module("transformers.models.t5.tokenization_t5")
             tokenizer = _t5_slow.T5Tokenizer.from_pretrained(
                 model_link, legacy=True, trust_remote_code=self.trust_remote_code
             )
@@ -418,9 +424,9 @@ class ESM2Embedder(HuggingfaceEmbedder):
             model_kwargs["attn_implementation"] = "eager"
 
         if self.return_logits:
-            model = AutoModelForMaskedLM.from_pretrained(
-                model_link, **model_kwargs
-            ).to(device)
+            model = AutoModelForMaskedLM.from_pretrained(model_link, **model_kwargs).to(
+                device
+            )
         else:
             model = AutoModel.from_pretrained(model_link, **model_kwargs).to(device)
         model.eval()
@@ -449,8 +455,9 @@ class ESM2Embedder(HuggingfaceEmbedder):
         )
         if return_logits:
             logits = (
-                outputs.logits
-                .to(dtype=self._precision_to_dtype(self.precision, "torch"))
+                outputs.logits.to(
+                    dtype=self._precision_to_dtype(self.precision, "torch")
+                )
                 .permute(2, 0, 1)
                 .cpu()
             )
@@ -585,9 +592,9 @@ class ESMCEmbedder(HuggingfaceEmbedder):
             model_kwargs["attn_implementation"] = "eager"
 
         if self.return_logits:
-            model = AutoModelForMaskedLM.from_pretrained(
-                model_link, **model_kwargs
-            ).to(device)
+            model = AutoModelForMaskedLM.from_pretrained(model_link, **model_kwargs).to(
+                device
+            )
         else:
             model = AutoModel.from_pretrained(model_link, **model_kwargs).to(device)
         model.eval()
@@ -599,9 +606,7 @@ class ESMCEmbedder(HuggingfaceEmbedder):
         num_layers = _get_config_attr(
             config, "num_hidden_layers", "n_layers", "num_layers"
         )
-        embedding_size = _get_config_attr(
-            config, "hidden_size", "d_model", "embed_dim"
-        )
+        embedding_size = _get_config_attr(config, "hidden_size", "d_model", "embed_dim")
         return model, tokenizer, num_heads, num_layers, embedding_size
 
 

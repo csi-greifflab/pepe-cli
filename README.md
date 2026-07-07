@@ -1,18 +1,18 @@
 # PEPE
 
-PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings and attention matrices from protein sequences using pre-trained models. This tool supports various configurations for extracting embeddings and attention matrices, including options for handling CDR3 sequences. Currently implemented models are ESM2 from the 2023 paper ["Evolutionary-scale prediction of atomic-level protein structure with a language model"](https://science.org/doi/10.1126/science.ade2574) and AntiBERTa2-CSSP from the 2023 conference paper ["Enhancing Antibody Language Models with Structural Information"](https://www.mlsb.io/papers_2023/Enhancing_Antibody_Language_Models_with_Structural_Information.pdf). PEPE also supports custom PLMs from local files or from Huggingface Hub addresses. 
+PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings and attention matrices from protein sequences using pre-trained models. This tool supports various configurations for extracting embeddings and attention matrices, including options for handling CDR3 sequences. Currently implemented models are ESM2 from the 2023 paper ["Evolutionary-scale prediction of atomic-level protein structure with a language model"](https://science.org/doi/10.1126/science.ade2574) and AntiBERTa2-CSSP from the 2023 conference paper ["Enhancing Antibody Language Models with Structural Information"](https://www.mlsb.io/papers_2023/Enhancing_Antibody_Language_Models_with_Structural_Information.pdf). PEPE also supports custom PLMs from local files or from Huggingface Hub addresses.
 
 ### Citation
 > **PEPE: Scalable extraction of multi-modal protein language model representations**
 > Jahn Zhong, Niccolò Cardente, Geir Kjetil Sandve, Habib Bashour, Maria Francesca Abbate, Victor Greiff
-> *bioRxiv* (2026) 
+> *bioRxiv* (2026)
 > [DOI: 10.1101/2025.10.13.680902](https://doi.org/10.1101/2025.10.13.680902)
 
 ## Quick start
 
 1. Install PEPE
 
-    From PyPI:    
+    From PyPI:
     ```sh
     pip install pepe-cli
     ```
@@ -20,7 +20,7 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     ```sh
     conda install -c jahn_zhong pepe-cli
     ```
-    Or install from the GitHub repository:    
+    Or install from the GitHub repository:
     ```sh
     git clone https://github.com/csi-greifflab/pepe-cli
     cd pepe-cli
@@ -32,7 +32,35 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     pip install git+https://github.com/Biohub/transformers.git@main
     ```
 
-3. Extract embeddings:\
+3. *(Optional)* For METL 1D embedding models (e.g. `metl-g-20m-1d`), install the backend directly from GitHub (it is not on PyPI):
+
+    ```sh
+    pip install git+https://github.com/gitter-lab/metl-pretrained.git
+    ```
+
+    CLI example:
+
+    ```sh
+    pepe --model_name metl-g-20m-1d --fasta_path <file_path> --output_path <directory> --extract_embeddings mean_pooled
+    ```
+
+    Library example:
+
+    ```python
+    import pepe
+
+    results = pepe.embed(
+        model_name="metl-g-20m-1d",
+        sequences={"prot1": "MADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK"},
+        output_path="my_embeddings",
+        extract_embeddings=["mean_pooled"],
+        device="cpu",
+    )
+    ```
+
+    **Limitations:** 1D METL models only (`per_token`, `mean_pooled`, `substring_pooled`). Logits and attention outputs are not supported. 3D METL identifiers (requiring structures) and the generic Hugging Face repo id `gitter-lab/METL` are rejected—use a `metl-*-1d` identifier from [metl-pretrained](https://github.com/gitter-lab/metl-pretrained).
+
+4. Extract embeddings:\
     Extract mean pooled embeddings from protein amino acid sequences in FASTA file:
     ```sh
     pepe --experiment_name <optional_string> --fasta_path <file_path> --output_path <directory> --model_name <model_name>
@@ -116,7 +144,7 @@ results = pepe.embed(
 
 # The embeddings are NOT loaded into RAM here.
 # 'data' is a numpy.memmap object pointing to the file on disk.
-data = results.mean_pooled["output_data"][-1] 
+data = results.mean_pooled["output_data"][-1]
 
 # You can slice it like a normal array, which only loads those specific rows into RAM
 first_100_embeddings = data[:100]
@@ -124,7 +152,7 @@ first_100_embeddings = data[:100]
 # Optimizing RAM usage:
 # If you are done with the model but want to keep working with the data,
 # you can delete the embedder object to free up GPU/CPU memory while keeping the memmaps.
-del results 
+del results
 ```
 
 ### Handling Long Sequences (Splitting & Reconstruction)
@@ -132,8 +160,8 @@ del results
 Some models have strict architectural limits on input length (e.g., 1024 for ESM-2, 256 for AntiBERTa2). PEPE can automatically detect sequences that exceed these limits and handle them through chunking and reconstruction.
 
 - **Automatic Detection**: When `--split_long_sequences` is enabled, PEPE automatically identifies sequences exceeding the model's capacity.
-- **Overlapping Chunks**: Use `--split_overlap` to maintain context between chunks. 
-- **Reconstruction**: 
+- **Overlapping Chunks**: Use `--split_overlap` to maintain context between chunks.
+- **Reconstruction**:
     - In **Library mode**, sequences are reconstructed in memory automatically after `embed()`.
     - In **CLI mode**, sequences are reconstructed if `streaming_output=False`. If `streaming_output=True`, chunks are exported individually to maximize efficiency and minimize RAM usage.
 
@@ -199,6 +227,8 @@ results = pepe.embed(
         - biohub/ESMC-300M
         - biohub/ESMC-600M
         - biohub/ESMC-6B
+    - METL 1D models (requires `metl-pretrained` from GitHub; see Quick start)
+        - `metl-g-20m-1d` and other `metl-*-1d` identifiers supported by [metl-pretrained](https://github.com/gitter-lab/metl-pretrained)
     - Custom Hugging Face models
         - Any compatible model from Hugging Face Hub: `username/model-name`
         - Private models with authentication
@@ -214,6 +244,7 @@ results = pepe.embed(
 - **`--model_name`** (str): Name of model or link to model. Choose from [List of supported models](../README.md#list-of-supported-models) or use custom models:
   - ESM models: `esm2_t33_650M_UR50D`
   - ESMC models: `biohub/ESMC-300M` (requires Biohub transformers fork; see Quick start)
+  - METL 1D models: `metl-g-20m-1d` (requires `metl-pretrained` from GitHub; see Quick start)
   - Hugging Face models: `username/model-name`
   - Custom PyTorch models: `/path/to/model.pt` or `/path/to/model_directory/`
   - Local HF models: `/path/to/local_hf_directory/`
