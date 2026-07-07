@@ -16,10 +16,10 @@ jobs:
       test_version: ${{ steps.version_step.outputs.test_version }}
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.10'
     
@@ -106,10 +106,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-publish-test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       
       - name: Set up Conda
-        uses: conda-incubator/setup-miniconda@v3
+        uses: conda-incubator/setup-miniconda@v4
         with:
           auto-update-conda: true
           python-version: '3.10'
