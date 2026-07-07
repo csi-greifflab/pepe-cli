@@ -38,7 +38,9 @@ jobs:
           python -m pytest -v \
             src/tests/test_parse_arguments.py \
             src/tests/test_device_logic.py \
-            src/tests/test_load_layers_default.py
+            src/tests/test_load_layers_default.py \
+            src/tests/test_model_selection.py \
+            src/tests/test_generic_safeguards.py
 
   integration:
     name: Integration tests (downloads a small model)
@@ -63,3 +65,7 @@ jobs:
           python -m pytest -v \
             src/tests/test_api_unittest.py \
             src/tests/test_splitting.py
+      - name: Run generic HuggingFace embedder integration test
+        run: |
+          GENERIC_HF_TEST=1 python -m pytest -v \
+            src/tests/test_generic_hf_integration.py

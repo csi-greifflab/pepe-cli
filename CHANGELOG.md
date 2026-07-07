@@ -18,6 +18,19 @@ truth that drives publishing).
 ## [Unreleased]
 
 ### Added
+- Typed model-selection errors (`ModelNotFoundError`, `GatedModelError`,
+  `RemoteCodeRequiredError`, `UnsupportedArchitectureError`,
+  `ModelEnvironmentError`, `ESMCForkRequiredError`) with actionable messages
+  when HuggingFace config or model loading fails.
+- Gated integration test for the generic HuggingFace embedder path
+  (`GENERIC_HF_TEST=1`; downloads `hf-internal-testing/tiny-random-BertModel`).
+  CI runs it in the integration job (model-download) while the unit job stays
+  download-free.
+- `--trust_remote_code` CLI/API flag to opt in to HuggingFace custom modeling code
+  (default off; documented security risk in `--help`).
+- `pepe --check_model <repo>` dry-run that loads config and tokenizer only and
+  prints architecture, embedder choice, max length, tokenizer type, and output
+  capabilities before any embedding run.
 - Broader model compatibility: BERT-like and other unrecognized HuggingFace
   architectures now fall back to the generic `AutoModel`-based embedder instead
   of raising, so standard protein encoders such as ProtBert, AntiBERTy and
@@ -32,6 +45,10 @@ truth that drives publishing).
   installed it manually; CI now guards against this regression.
 
 ### Changed
+- HuggingFace config/load failures are classified by upstream exception type
+  instead of string-sniffing on error messages (`model_errors.py`).
+- Generic HuggingFace model loading no longer auto-enables `trust_remote_code`
+  based on repo name patterns; use `--trust_remote_code` explicitly when needed.
 - Model dispatch (`model_selecter.py`) now inspects a HuggingFace repo's config
   (`AutoConfig.model_type`) before matching on its name. A fine-tune whose repo
   slug contains "esm2" but whose architecture is something else is no longer
@@ -44,6 +61,12 @@ truth that drives publishing).
   `pypa/gh-action-pypi-publish` is Docker-based and unaffected.
 
 ### Fixed
+- Generic HuggingFace embedder (`GenericHuggingFaceEmbedder`) now mirrors ESM-2
+  safeguards: length-limit detection and optional sequence splitting via
+  `_check_max_input_length`, eager attention when extracting contacts, and a
+  warning when the tokenizer is subword-based (per-residue outputs may be
+  misaligned). Sentinel `tokenizer.model_max_length` values (~1e30) are treated
+  as unknown limits instead of a real cap.
 - Corrected the PyPI license classifier from "GNU Affero General Public License
   v3" to "MIT License" in `pyproject.toml` and `setup.py`, matching the actual
   `LICENSE` file.

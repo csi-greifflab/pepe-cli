@@ -249,8 +249,12 @@ class T5Embedder(HuggingfaceEmbedder):
             AutoModelForMaskedLM,
         ) = _import_transformers()
 
-        tokenizer = T5Tokenizer.from_pretrained(model_link, use_fast=True)
-        model = T5EncoderModel.from_pretrained(model_link).to(device)  # type: ignore
+        tokenizer = T5Tokenizer.from_pretrained(
+            model_link, use_fast=True, trust_remote_code=self.trust_remote_code
+        )
+        model = T5EncoderModel.from_pretrained(
+            model_link, trust_remote_code=self.trust_remote_code
+        ).to(device)  # type: ignore
         model.eval()
         num_heads = model.config.num_heads
         num_layers = model.config.num_layers
@@ -281,6 +285,7 @@ class ESM2Embedder(HuggingfaceEmbedder):
         self.valid_tokens = self._get_valid_tokens()
         self.bracket_type = pepe.utils.get_bracket_type(self.tokenizer)
         self._check_max_input_length()
+        pepe.utils.warn_if_non_character_tokenizer(self.tokenizer, self.model_name)
         pepe.utils.check_input_tokens(
             self.valid_tokens,
             self.sequences,
@@ -343,8 +348,10 @@ class ESM2Embedder(HuggingfaceEmbedder):
         ) = _import_transformers()
 
         logger.info(f"Loading ESM-2 model from HuggingFace: {model_link}")
-        tokenizer = AutoTokenizer.from_pretrained(model_link)
-        model_kwargs = {}
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_link, trust_remote_code=self.trust_remote_code
+        )
+        model_kwargs = {"trust_remote_code": self.trust_remote_code}
         if self.return_contacts:
             model_kwargs["attn_implementation"] = "eager"
 
@@ -540,8 +547,13 @@ class GenericHuggingFaceEmbedder(HuggingfaceEmbedder):
         ) = self._initialize_model(self.model_link)
         self.valid_tokens = self._get_valid_tokens()
         self.bracket_type = pepe.utils.get_bracket_type(self.tokenizer)
+        self._check_max_input_length()
+        pepe.utils.warn_if_non_character_tokenizer(self.tokenizer, self.model_name)
         pepe.utils.check_input_tokens(
-            self.valid_tokens, self.sequences, self.model_name
+            self.valid_tokens,
+            self.sequences,
+            self.model_name,
+            split_long_sequences=self.split_long_sequences,
         )
         self.special_tokens = torch.tensor(
             self.tokenizer.all_special_ids, device=self.device, dtype=torch.int8
@@ -590,54 +602,49 @@ class GenericHuggingFaceEmbedder(HuggingfaceEmbedder):
             AutoModelForMaskedLM,
         ) = _import_transformers()
 
-        # For models that commonly require custom code, use trust_remote_code=True immediately
-        requires_custom_code = any(
-            pattern in model_link.lower()
-            for pattern in ["progen", "protgpt", "esm-fold", "esmfold", "alphafold"]
-        )
+        from pepe.model_errors import translate_hf_config_error
 
-        if requires_custom_code:
-            tokenizer = AutoTokenizer.from_pretrained(
-                model_link, use_fast=True, trust_remote_code=True
-            )
+        model_kwargs = {"trust_remote_code": self.trust_remote_code}
+        if self.return_contacts:
+            model_kwargs["attn_implementation"] = "eager"
+        attn_fallback_attempted = False
+
+        def _load_pretrained(model_cls, link, **extra_kwargs):
+            nonlocal attn_fallback_attempted
+            kwargs = {**model_kwargs, **extra_kwargs}
             try:
-                model = AutoModel.from_pretrained(
-                    model_link, trust_remote_code=True
-                ).to(device)
-            except ValueError as model_error:
-                # If AutoModel fails, try AutoModelForCausalLM
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_link, trust_remote_code=True
-                ).to(device)
-        else:
-            # Try without trust_remote_code first, then with it if needed
-            try:
-                tokenizer = AutoTokenizer.from_pretrained(model_link, use_fast=True)
-                try:
-                    model = AutoModel.from_pretrained(model_link).to(device)
-                except ValueError as model_error:
-                    # If AutoModel fails, try AutoModelForCausalLM
-                    model = AutoModelForCausalLM.from_pretrained(model_link).to(device)
-            except (OSError, ValueError) as e:
-                # If the model requires custom code, try with trust_remote_code=True
+                return model_cls.from_pretrained(link, **kwargs).to(device)
+            except (TypeError, ValueError) as load_error:
                 if (
-                    "trust_remote_code" in str(e).lower()
-                    or "custom code" in str(e).lower()
+                    model_kwargs.get("attn_implementation")
+                    and not attn_fallback_attempted
                 ):
-                    tokenizer = AutoTokenizer.from_pretrained(
-                        model_link, use_fast=True, trust_remote_code=True
+                    attn_fallback_attempted = True
+                    logger.warning(
+                        "Model rejected attn_implementation='eager' (%s); "
+                        "attention extraction may be unavailable.",
+                        load_error,
                     )
-                    try:
-                        model = AutoModel.from_pretrained(
-                            model_link, trust_remote_code=True
-                        ).to(device)
-                    except ValueError as model_error:
-                        # If AutoModel fails, try AutoModelForCausalLM
-                        model = AutoModelForCausalLM.from_pretrained(
-                            model_link, trust_remote_code=True
-                        ).to(device)
-                else:
-                    raise
+                    model_kwargs.pop("attn_implementation", None)
+                    kwargs = {**model_kwargs, **extra_kwargs}
+                    return model_cls.from_pretrained(link, **kwargs).to(device)
+                raise
+
+        def _load_model(link, **extra_kwargs):
+            try:
+                return _load_pretrained(AutoModel, link, **extra_kwargs)
+            except ValueError:
+                return _load_pretrained(AutoModelForCausalLM, link, **extra_kwargs)
+
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_link, use_fast=True, trust_remote_code=self.trust_remote_code
+            )
+            model = _load_model(model_link)
+        except Exception as e:
+            translate_hf_config_error(
+                model_link, e, trust_remote_code=self.trust_remote_code
+            )
 
         # Handle tokenizer padding token
         if tokenizer.pad_token is None:
