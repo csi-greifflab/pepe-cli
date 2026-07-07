@@ -1,8 +1,10 @@
 import logging
+
 import torch
+
 import pepe.utils
 from pepe.embedders.base_embedder import BaseEmbedder
-from pepe.model_errors import ModelSelectionError, METLPackageRequiredError
+from pepe.model_errors import METLPackageRequiredError, ModelSelectionError
 
 
 def _import_metl():
@@ -89,7 +91,9 @@ class METLEmbedder(BaseEmbedder):
         tr_encoder = model.model.tr_encoder
         num_tr_layers = len(tr_encoder.layers)
         num_layers = num_tr_layers
-        embedding_size = getattr(model, "embedding_len", None) or model.model.embedding_len
+        embedding_size = (
+            getattr(model, "embedding_len", None) or model.model.embedding_len
+        )
         num_heads = 1
 
         if torch.cuda.is_available() and self.device.type == "cuda":
@@ -103,25 +107,33 @@ class METLEmbedder(BaseEmbedder):
     def _register_repr_hooks(self):
         tr_encoder = self.model.model.tr_encoder
         num_tr_layers = len(tr_encoder.layers)
+        final_norm = getattr(tr_encoder, "norm", None)
 
+        def make_hook(captured_layer):
+            def hook(_module, _input, output):
+                self._repr_outputs[captured_layer] = output
+
+            return hook
+
+        def make_pre_hook(captured_layer):
+            def pre_hook(_module, args):
+                self._repr_outputs[captured_layer] = args[0]
+
+            return pre_hook
+
+        # Layer index semantics match the HuggingFace path (hidden_states[k]):
+        # layer 0 = input embeddings, layer k (1..num_tr_layers) = k-th block output.
         for layer in self.layers:
-            if layer == num_tr_layers:
-
-                def make_hook(captured_layer):
-                    def hook(_module, _input, output):
-                        self._repr_outputs[captured_layer] = output
-
-                    return hook
-
-                handle = tr_encoder.norm.register_forward_hook(make_hook(layer))
+            if layer == 0:
+                # Input embeddings (+ positional encoding): the tensor fed into the
+                # encoder, captured via a forward_pre_hook so it is agnostic to whether
+                # the model uses absolute or relative positional encoding.
+                handle = tr_encoder.register_forward_pre_hook(make_pre_hook(layer))
+            elif layer == num_tr_layers and final_norm is not None:
+                # Post-norm final representation when the encoder has a final norm
+                # (norm_first architectures); otherwise fall through to the last block.
+                handle = final_norm.register_forward_hook(make_hook(layer))
             else:
-
-                def make_hook(captured_layer):
-                    def hook(_module, _input, output):
-                        self._repr_outputs[captured_layer] = output
-
-                    return hook
-
                 handle = tr_encoder.layers[layer - 1].register_forward_hook(
                     make_hook(layer)
                 )
@@ -129,13 +141,11 @@ class METLEmbedder(BaseEmbedder):
 
     def _load_layers(self, layers):
         if layers is None:
-            return [self.num_layers]
+            return list(range(1, self.num_layers + 1))
         if not layers:
             layers = [-1]
         assert all(-(self.num_layers + 1) <= i <= self.num_layers for i in layers)
-        layers = [
-            (i + self.num_layers + 1) % (self.num_layers + 1) for i in layers
-        ]
+        layers = [(i + self.num_layers + 1) % (self.num_layers + 1) for i in layers]
         return layers
 
     def _load_data(self, sequences, substring_dict=None):
@@ -190,9 +200,7 @@ class METLEmbedder(BaseEmbedder):
         if max_allowed is None:
             return
 
-        sequences_too_long = any(
-            len(s) > max_allowed for s in self.sequences.values()
-        )
+        sequences_too_long = any(len(s) > max_allowed for s in self.sequences.values())
         needs_splitting = (
             isinstance(self.max_input_length, int)
             and self.max_input_length > max_allowed

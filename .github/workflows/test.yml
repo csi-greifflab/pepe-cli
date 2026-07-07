@@ -68,6 +68,7 @@ jobs:
             src/tests/test_load_layers_default.py \
             src/tests/test_model_selection.py \
             src/tests/test_metl_dispatch.py \
+            src/tests/test_metl_hooks.py \
             src/tests/test_generic_safeguards.py \
             src/tests/test_custom_embedder.py
 
