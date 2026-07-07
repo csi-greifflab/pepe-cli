@@ -32,24 +32,36 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     pip install git+https://github.com/Biohub/transformers.git@main
     ```
 
-3. *(Optional)* For METL 1D embedding models (e.g. `metl-g-20m-1d`), install the `metl-pretrained` backend via PEPE's `[metl]` extra. This extra is not yet on PyPI; install from the repository:
+3. *(Optional)* For METL 1D embedding models (e.g. `metl-g-20m-1d`), install the optional backend:
 
     ```sh
-    git clone https://github.com/csi-greifflab/pepe-cli
-    cd pepe-cli
-    pip install -e ".[metl]"
+    pip install pepe-cli[metl]
     ```
 
-    Or install directly from GitHub:
+    The underlying `metl-pretrained` package is not on PyPI. PEPE's `[metl]` extra installs it from GitHub; you can also install it directly:
 
     ```sh
-    pip install "pepe-cli[metl] @ git+https://github.com/csi-greifflab/pepe-cli.git"
+    pip install git+https://github.com/gitter-lab/metl-pretrained.git
     ```
 
-    Example:
+    CLI example:
 
     ```sh
     pepe --model_name metl-g-20m-1d --fasta_path <file_path> --output_path <directory> --extract_embeddings mean_pooled
+    ```
+
+    Library example:
+
+    ```python
+    import pepe
+
+    results = pepe.embed(
+        model_name="metl-g-20m-1d",
+        sequences={"prot1": "MADKQKNGIKVNFKIRHNIEDGSVQLADHYQQNTPIGDGPVLLPDNHYLSTQSALSKDPNEKRDHMVLLEFVTAAGITHGMDELYK"},
+        output_path="my_embeddings",
+        extract_embeddings=["mean_pooled"],
+        device="cpu",
+    )
     ```
 
     **Limitations:** 1D METL models only (`per_token`, `mean_pooled`, `substring_pooled`). Logits and attention outputs are not supported. 3D METL identifiers (requiring structures) and the generic Hugging Face repo id `gitter-lab/METL` are rejected—use a `metl-*-1d` identifier from [metl-pretrained](https://github.com/gitter-lab/metl-pretrained).
@@ -221,7 +233,7 @@ results = pepe.embed(
         - biohub/ESMC-300M
         - biohub/ESMC-600M
         - biohub/ESMC-6B
-    - METL 1D models (requires `[metl]` extra; see Quick start—install from GitHub until published on PyPI)
+    - METL 1D models (requires `[metl]` extra; see Quick start)
         - `metl-g-20m-1d` and other `metl-*-1d` identifiers supported by [metl-pretrained](https://github.com/gitter-lab/metl-pretrained)
     - Custom Hugging Face models
         - Any compatible model from Hugging Face Hub: `username/model-name`
