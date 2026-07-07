@@ -26,7 +26,7 @@ class TestCustomEmbedderRoundTrip(unittest.TestCase):
             json.dump(cls.config, f)
 
         cls.model_path = os.path.join(cls.model_dir, "model.pt")
-        # Save weights-only payload so torch.load(weights_only=True) works on PyTorch 2.6+.
+        # state_dict dict format matches CustomEmbedder loader (weights_only=False on PyTorch 2.6+).
         torch.save({"config": cls.config, "state_dict": {}}, cls.model_path)
 
     @classmethod

@@ -186,9 +186,9 @@ class Antiberta2Embedder(HuggingfaceEmbedder):
         model_link: Optional[str] = None,
         tokenizer_path: Optional[str] = None,
     ) -> Tuple[Any, ...]:
+        """Initialize the model, tokenizer, and device."""
         if model_link is None:
             model_link = "alchemab/antiberta2-cssp"
-        """Initialize the model, tokenizer, and device."""
         if torch.cuda.is_available() and self.device.type == "cuda":
             device = torch.device("cuda")
             logger.info("Transferred model to GPU")
@@ -256,10 +256,9 @@ class T5Embedder(HuggingfaceEmbedder):
         model_link: Optional[str] = None,
         tokenizer_path: Optional[str] = None,
     ) -> Tuple[Any, ...]:
+        """Initialize the model, tokenizer, and device."""
         if model_link is None:
             model_link = "Rostlab/prot_t5_xl_half_uniref50-enc"
-        """Initialize the model, tokenizer, and device."""
-
         if torch.cuda.is_available() and self.device.type == "cuda":
             device = torch.device("cuda")
             logger.info("Transferred model to GPU")

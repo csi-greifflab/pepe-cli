@@ -45,7 +45,8 @@ truth that drives publishing).
 - Unit test guarding CLI/`embed()` argument parity (`test_sync_arguments.py`).
 - Custom `.pt` embedder round-trip test (`test_custom_embedder.py`).
 - Gated ESM-1 integration test (`test_esm1_integration.py`; requires `fair-esm`).
-- Gated T5 / AntiBERTa2 integration tests (`T5_ANTIBERTA2_TEST=1`).
+- Gated T5 / AntiBERTa2 integration tests (`T5_ANTIBERTA2_TEST=1`); optional
+  manual ProtT5 checkpoint test (`PROT_T5_MANUAL_TEST=1`).
 - On-disk fixtures for long-sequence splitting regression tests
   (`src/tests/splitting_test_assets/`).
 
