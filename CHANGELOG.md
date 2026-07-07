@@ -17,6 +17,23 @@ truth that drives publishing).
 
 ## [Unreleased]
 
+### Added
+- METL 1D protein embeddings via optional `metl-pretrained` backend: install with
+  `pip install pepe-cli[metl]` and use model identifiers such as `metl-g-20m-1d`
+  (and other `metl-*-1d` names). Dispatch lives in `model_selecter.py`; embedding
+  is handled by `METLEmbedder` with `METLDataset` tokenization.
+- `[metl]` and `[esm]` optional dependency extras in `pyproject.toml` and
+  `setup.py`.
+- Typed errors `METLPackageRequiredError` and `METL3DNotSupportedError` when
+  METL is requested without the extra or when a 3D METL model id is used.
+- Unit tests for METL dispatch and an optional integration test (`METL_TEST=1`)
+  wired in CI (`.github/workflows/test.yml`).
+
+### Limitations
+- METL support is **1D embeddings only** (`per_token`, `mean_pooled`,
+  `substring_pooled`). Logits and attention outputs are not available. 3D METL
+  model identifiers are rejected with a clear error.
+
 ### Removed
 - Dropped support for Python 3.8 and 3.9. The minimum supported version is now
   **3.10** (`requires-python >=3.10`), matching the mypy/Ruff target. The CI unit
