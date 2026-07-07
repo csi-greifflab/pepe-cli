@@ -1,5 +1,5 @@
 # Embedding options
-PEPE can extract numerous different representations from the input sequences while embedding each only once. 
+PEPE can extract numerous different representations from the input sequences while embedding each only once.
 ## Layer selection
 Protein representations can be extracted from any of a PLMs hidden layers using the ```--layers``` argument and passing a list of integers. Use negative integers to index layers from the last element. E.g. ```"1"``` is first layer, ```"-1"``` is the last layer, ```"-2"``` is second to last layer, etc. Use ```"all"``` to select all layers. Default option: ```"-1"```.
 ```sh
@@ -18,7 +18,7 @@ Multiple embedding modes can be selected at once using the ```--extract_embeddin
     - ```"mean_pooled"``` (default option): Average of ```"per_token"``` embedding over all amino acid tokens of the protein sequence.
     - ```"substring_pooled"```: Average of ```"per_token"``` embedding over a specified substring of the protein sequence. Additional arguments when selected:
         - ```--substring_path``` (required for ```"substring_pooled"```): Path to a CSV file with two columns. The first column contains the ```sequence_id``` and the second column must contain a substring of the sequence provided in the FASTA input file.
-        - ```--context``` (optional): Specify the number of residues before and after the substring to include during pooling. 
+        - ```--context``` (optional): Specify the number of residues before and after the substring to include during pooling.
 - Attention weights:
     - ```"attention_head"```: Asymmetrical pairwise attention weight matrices of input tokens from each self-attention head of the specified layer(s)
     - ```"attention_layer"```: Average of ```"attention_head"``` per specified layer.

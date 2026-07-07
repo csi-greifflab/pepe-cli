@@ -12,6 +12,7 @@ returns random hidden states, so values are not comparable across runs; the test
 asserts structure (count/shape/non-zero) and, above all, that reconstruction does
 not raise.
 """
+
 import json
 import os
 import sys

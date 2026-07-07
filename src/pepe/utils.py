@@ -1,16 +1,17 @@
-import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
-from torch.utils.data import Dataset
-import re
-import torch
-import time
 import gc
-import os
 import json
-from transformers import RoFormerTokenizer, T5Tokenizer
-import threading, queue
-from alive_progress import alive_bar
+import logging
+import os
+import queue
+import re
 import shutil
+import threading
+import time
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import torch
+from alive_progress import alive_bar
+from torch.utils.data import Dataset
 
 logger = logging.getLogger("pepe.utils")
 
@@ -29,7 +30,7 @@ class TokenBudgetBatchSampler:
 
         # dataset[idx] -> (label, seq_str, toks, ...)
         sample_seq_len = len(dataset[0][2])
-        
+
         if sample_seq_len > token_budget:
             logger.warning(
                 f"A sequence has length {sample_seq_len}, which exceeds the specified token budget (batch_size) of {token_budget}. "
@@ -53,8 +54,6 @@ class TokenBudgetBatchSampler:
 
     def __len__(self) -> int:
         return len(self.batches)
-
-
 
 
 class SequenceDictDataset(Dataset):
@@ -193,7 +192,9 @@ class HuggingFaceDataset(SequenceDictDataset):
             )  # (label, seq, toks, attention_mask)
             self.substring_masks = self._get_substring_masks()
 
-    def _encode_sequences(self, data, tokenizer, max_length, add_special_tokens, gapped_sequences = True):
+    def _encode_sequences(
+        self, data, tokenizer, max_length, add_special_tokens, gapped_sequences=True
+    ):
         labels, raw_strs = zip(*data)
         strs: List[str]
         if gapped_sequences:
@@ -205,12 +206,18 @@ class HuggingFaceDataset(SequenceDictDataset):
             max_token_length = max(len(seq) for seq in strs)
 
         # Account for special tokens (if any)
-        special_tokens_count = len(tokenizer.encode("", add_special_tokens=add_special_tokens)) if hasattr(tokenizer, "encode") else 0
+        special_tokens_count = (
+            len(tokenizer.encode("", add_special_tokens=add_special_tokens))
+            if hasattr(tokenizer, "encode")
+            else 0
+        )
         max_token_length += special_tokens_count
 
         if max_length == "max_length":
             max_length = max_token_length
-            logger.info(f"Setting max_length to {max_length} (including {special_tokens_count} special tokens).")
+            logger.info(
+                f"Setting max_length to {max_length} (including {special_tokens_count} special tokens)."
+            )
         else:
             max_length = int(max_length)
             if max_length < max_token_length:
@@ -362,6 +369,78 @@ class ESMDataset(SequenceDictDataset):
         else:
             return labels, seqs, toks, None, None
 
+
+class METLDataset(SequenceDictDataset):
+    def __init__(
+        self,
+        sequences,
+        substring_dict,
+        context,
+        data_encoder,
+        max_length,
+    ):
+        super().__init__(sequences, substring_dict, context)
+        self.data_encoder = data_encoder
+        self.encoded_data = self._encode_sequences(self.data, max_length)
+        self.pad_token_id = 0
+        if self.substring_dict:
+            logger.info("Tokenizing substrings...")
+            self.encoded_substring_data = self._encode_sequences(
+                self.filtered_substring_data,
+                "max_length",
+            )
+            logger.info("Matching substrings to full sequences...")
+            self.substring_masks = self._get_substring_masks()
+
+    def _encode_sequences(self, data, max_length):
+        labels, strs = zip(*data)
+        with alive_bar(1, title="Tokenizing sequences...") as bar:
+            encoded = self.data_encoder.encode_sequences(list(strs))
+            bar()
+
+        max_encoded_length = max(len(seq_encoded) for seq_encoded in encoded)
+        if max_length == "max_length":
+            max_length = max_encoded_length
+        else:
+            max_length = int(max_length)
+            if max_length < max_encoded_length:
+                logger.warning(
+                    f"max_length {max_length} is less than the length of the longest sequence: {max_encoded_length}. Setting max_length to {max_encoded_length}."
+                )
+                max_length = max_encoded_length
+        tokens = torch.empty((len(encoded), max_length), dtype=torch.int64)
+        tokens.fill_(0)
+        for i, seq_encoded in enumerate(encoded):
+            seq = torch.tensor(seq_encoded, dtype=torch.int64)
+            tokens[i, : len(seq_encoded)] = seq
+        return list(zip(labels, strs, list(tokens)))
+
+    def get_max_encoded_length(self):
+        return max(len(toks) for _, _, toks in self.encoded_data)
+
+    def safe_collate(self, batch):
+        if self.substring_dict:
+            labels, seqs, toks, _, substring_masks = zip(*batch)
+            return (
+                list(labels),
+                list(seqs),
+                torch.stack(toks),
+                None,
+                torch.stack(substring_masks),
+            )
+        else:
+            labels, seqs, toks, _, _ = zip(*batch)
+            return list(labels), list(seqs), torch.stack(toks), None, None
+
+    def __getitem__(self, idx):
+        labels, seqs, toks = self.encoded_data[idx]
+        if self.substring_dict:
+            substring_masks = self.substring_masks[idx]
+            return labels, seqs, toks, None, substring_masks
+        else:
+            return labels, seqs, toks, None, None
+
+
 class CustomDataset(SequenceDictDataset):
     """
     Dataset class for custom embedder.
@@ -375,7 +454,7 @@ class CustomDataset(SequenceDictDataset):
         tokenizer,
         max_length,
         add_special_tokens=True,
-        gapped_sequences = True,
+        gapped_sequences=True,
     ):
         super().__init__(sequences, substring_dict, context)
         self.tokenizer = tokenizer
@@ -400,7 +479,9 @@ class CustomDataset(SequenceDictDataset):
             )
             self.substring_masks = self._get_substring_masks()
 
-    def _encode_sequences(self, data, tokenizer, max_length, add_special_tokens, gapped_sequences = True):
+    def _encode_sequences(
+        self, data, tokenizer, max_length, add_special_tokens, gapped_sequences=True
+    ):
         """Encode sequences using the tokenizer."""
         labels, raw_strs = zip(*data)
         strs: List[str]
@@ -415,7 +496,9 @@ class CustomDataset(SequenceDictDataset):
 
         # Convert max_length to int if needed
         if max_length == "max_length":
-            max_token_length = max(len(s) for s in strs) + (2 if add_special_tokens else 0)
+            max_token_length = max(len(s) for s in strs) + (
+                2 if add_special_tokens else 0
+            )
 
         logger.info(f"Tokenizing {len(strs)} sequences...")
         out = tokenizer(
@@ -464,6 +547,7 @@ class CustomDataset(SequenceDictDataset):
         else:
             return labels, seqs, toks, attn_mask
 
+
 def check_input_tokens(
     valid_tokens: Any,
     sequences: Dict[str, str],
@@ -484,10 +568,12 @@ def check_input_tokens(
     ) as bar:
         for label, sequence in sequences.items():
             sequence = __str_to_list(sequence, bracket_type)
-            if "antiberta" in model_name and not split_long_sequences:  # check for longest sequence
-                assert (
-                    len(sequence) <= 256
-                ), f"Antiberta2 does not support sequences longer than 256 tokens. Found {len(sequence)} tokens in sequence {label}. Use --split_long_sequences to process longer sequences."
+            if (
+                "antiberta" in model_name and not split_long_sequences
+            ):  # check for longest sequence
+                assert len(sequence) <= 256, (
+                    f"Antiberta2 does not support sequences longer than 256 tokens. Found {len(sequence)} tokens in sequence {label}. Use --split_long_sequences to process longer sequences."
+                )
 
             if not set(sequence).issubset(valid_tokens):
                 raise ValueError(
@@ -502,13 +588,13 @@ _CHARACTER_TOKENIZER_PROBE = "ACDEFGHIKLMNPQRSTVWY"
 
 def is_character_tokenizer(tokenizer) -> bool:
     """Return True when one amino acid maps to one token (no subword merging)."""
-    encoded = tokenizer.encode(
-        _CHARACTER_TOKENIZER_PROBE, add_special_tokens=False
-    )
+    encoded = tokenizer.encode(_CHARACTER_TOKENIZER_PROBE, add_special_tokens=False)
     return len(encoded) == len(_CHARACTER_TOKENIZER_PROBE)
 
 
-def warn_if_non_character_tokenizer(tokenizer: Any, model_name: Optional[str] = None) -> None:
+def warn_if_non_character_tokenizer(
+    tokenizer: Any, model_name: Optional[str] = None
+) -> None:
     """Log a prominent warning when the tokenizer is not character-level."""
     if is_character_tokenizer(tokenizer):
         return
@@ -544,6 +630,8 @@ def fasta_to_dict(fasta_path: str) -> Dict[str, str]:
     flush()
 
     return seq_dict
+
+
 def get_bracket_type(tokenizer: Any) -> str:
     """
     Attempt to determine if special tokens use [ ] or < > brackets.
@@ -551,17 +639,22 @@ def get_bracket_type(tokenizer: Any) -> str:
     """
     try:
         special_tokens = []
-        if hasattr(tokenizer, "special_tokens_map") and "additional_special_tokens" in tokenizer.special_tokens_map:
+        if (
+            hasattr(tokenizer, "special_tokens_map")
+            and "additional_special_tokens" in tokenizer.special_tokens_map
+        ):
             tokens = tokenizer.special_tokens_map["additional_special_tokens"]
             if tokens and len(tokens) > 0:
                 special_tokens.append(tokens[0])
-        
+
         if not special_tokens and hasattr(tokenizer, "all_special_tokens"):
             if tokenizer.all_special_tokens:
                 special_tokens.append(tokenizer.all_special_tokens[0])
-        
+
         if not special_tokens:
-            logger.warning("Could not find any special tokens. Defaulting to 'square' brackets.")
+            logger.warning(
+                "Could not find any special tokens. Defaulting to 'square' brackets."
+            )
             return "square"
 
         first_char = special_tokens[0][0]
@@ -570,11 +663,17 @@ def get_bracket_type(tokenizer: Any) -> str:
         elif first_char == "[":
             return "square"
         else:
-            logger.warning(f"Unrecognized special token format (starts with '{first_char}'). Defaulting to 'square' brackets.")
+            logger.warning(
+                f"Unrecognized special token format (starts with '{first_char}'). Defaulting to 'square' brackets."
+            )
             return "square"
     except Exception as e:
-        logger.warning(f"Error determining bracket type: {e}. Defaulting to 'square' brackets.")
+        logger.warning(
+            f"Error determining bracket type: {e}. Defaulting to 'square' brackets."
+        )
         return "square"
+
+
 def gap_sequence(sequences: Sequence[str], bracket_type: str = "square") -> List[str]:
     if bracket_type == "square":
         seqs = [" ".join(re.findall(r"\[.*?\]|.", sequence)) for sequence in sequences]
@@ -583,6 +682,7 @@ def gap_sequence(sequences: Sequence[str], bracket_type: str = "square") -> List
     else:
         raise ValueError(f"Invalid bracket type: {bracket_type}")
     return seqs
+
 
 def flush_memmaps(obj: Any) -> None:
     """Recursively flush memory maps."""
@@ -735,8 +835,10 @@ class IOFlushWorker(threading.Thread):
                 self.mark_range_completed(output_type, layer, head, offset, len(arr))
             mmap_handle.flush()
             duration = time.time() - t0
-            if duration > 1.0: # Only log slow flushes
-                logger.info(f"[IOFlushWorker] Slow flush for {key}: {duration:.2f}s for {batch_count} batches ({total_elements} elements)")
+            if duration > 1.0:  # Only log slow flushes
+                logger.info(
+                    f"[IOFlushWorker] Slow flush for {key}: {duration:.2f}s for {batch_count} batches ({total_elements} elements)"
+                )
         except Exception as e:
             logger.error(f"[IOFlushWorker] Exception during flush: {e}")
             raise e
@@ -749,7 +851,7 @@ class IOFlushWorker(threading.Thread):
         # Check if this range was already completed (crash recovery)
         if self.is_range_completed(output_type, layer, head, offset, len(array)):
             logger.debug(
-                f"[IOFlushWorker] Skipping already completed range: {output_type}, {layer}, {head}, {offset}-{offset+len(array)}"
+                f"[IOFlushWorker] Skipping already completed range: {output_type}, {layer}, {head}, {offset}-{offset + len(array)}"
             )
             return
 
@@ -785,7 +887,7 @@ class IOFlushWorker(threading.Thread):
             max_wait_time: Maximum time to wait for pending operations (seconds)
             force_shutdown: If True, force shutdown after max_wait_time even if work remains
         """
-        logger.info(f"[IOFlushWorker] Initiating shutdown...")
+        logger.info("[IOFlushWorker] Initiating shutdown...")
 
         # Signal that we're shutting down
         self.shutdown_flag.set()
@@ -903,9 +1005,11 @@ class MultiIODispatcher:
             self.num_heavy_workers = 0
             self.num_light_workers = num_workers
         elif num_workers == 1:
-            logger.info("[MultiIODispatcher] Only 1 worker available. Assigning all keys to this worker.")
+            logger.info(
+                "[MultiIODispatcher] Only 1 worker available. Assigning all keys to this worker."
+            )
             self.num_heavy_workers = 1
-            self.num_light_workers = 1 # Both point to the same worker
+            self.num_light_workers = 1  # Both point to the same worker
         else:
             self.num_heavy_workers = max(1, int(num_workers * heavy_proportion))
             self.num_light_workers = num_workers - self.num_heavy_workers
@@ -927,7 +1031,9 @@ class MultiIODispatcher:
                     shard_id = hash(key) % self.num_heavy_workers
                 else:
                     # Assign light keys to light workers
-                    shard_id = self.num_heavy_workers + (hash(key) % self.num_light_workers)
+                    shard_id = self.num_heavy_workers + (
+                        hash(key) % self.num_light_workers
+                    )
             sharded_registries[shard_id][key] = mmap
 
         for i, reg in enumerate(sharded_registries):
@@ -947,7 +1053,9 @@ class MultiIODispatcher:
             self.light_workers = self.workers
         else:
             self.heavy_workers = (
-                self.workers[: self.num_heavy_workers] if self.num_heavy_workers > 0 else []
+                self.workers[: self.num_heavy_workers]
+                if self.num_heavy_workers > 0
+                else []
             )
             self.light_workers = self.workers[self.num_heavy_workers :]
 
@@ -1049,7 +1157,7 @@ class MultiIODispatcher:
                     for key, ranges in self.global_completed_ranges.items():
                         total_bytes = sum(end - start for start, end in ranges)
                         logger.info(
-                            f"  {key}: {len(ranges)} ranges, {total_bytes / (1024*1024):.1f}MB"
+                            f"  {key}: {len(ranges)} ranges, {total_bytes / (1024 * 1024):.1f}MB"
                         )
 
             except Exception as e:

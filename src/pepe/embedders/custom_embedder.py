@@ -1,13 +1,13 @@
-import logging
-import torch
-import torch.nn as nn
-import os
 import json
-import sys
+import logging
+import os
 from typing import Any, Dict, List, Optional, Set, Tuple
+
+import torch
+from transformers import AutoTokenizer
+
 import pepe.utils
 from pepe.embedders.base_embedder import BaseEmbedder
-from transformers import AutoTokenizer
 
 logger = logging.getLogger("pepe.embedders.custom_embedder")
 
@@ -121,9 +121,7 @@ class CustomEmbedder(BaseEmbedder):
         # for the config/metadata dict format) and therefore executes arbitrary
         # code from the file — acceptable here because a custom .pt path is the
         # user's own local model, not a remote download.
-        model_data = torch.load(
-            model_file_path, map_location="cpu", weights_only=False
-        )
+        model_data = torch.load(model_file_path, map_location="cpu", weights_only=False)
 
         # Handle different model saving formats
         if isinstance(model_data, dict):
@@ -229,9 +227,9 @@ class CustomEmbedder(BaseEmbedder):
 
     def _infer_embedding_size(self, state_dict: Any) -> int:
         """Infer embedding size from state dict."""
-        assert (
-            state_dict is not None
-        ), "State dict cannot be None for embedding size inference"
+        assert state_dict is not None, (
+            "State dict cannot be None for embedding size inference"
+        )
 
         # Look for embedding layers
         emb_keys = [
@@ -307,9 +305,9 @@ class CustomEmbedder(BaseEmbedder):
             layers = [-1]
 
         # Validate layer indices
-        assert all(
-            -(self.num_layers + 1) <= i <= self.num_layers for i in layers
-        ), f"Layer indices must be in range [{-(self.num_layers + 1)}, {self.num_layers}]"
+        assert all(-(self.num_layers + 1) <= i <= self.num_layers for i in layers), (
+            f"Layer indices must be in range [{-(self.num_layers + 1)}, {self.num_layers}]"
+        )
 
         # Convert negative indices to positive
         layers = [(i + self.num_layers + 1) % (self.num_layers + 1) for i in layers]

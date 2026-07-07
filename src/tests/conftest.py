@@ -1,4 +1,5 @@
 """Shared pytest fixtures for PEPE tests."""
+
 import os
 import sys
 
@@ -95,11 +96,10 @@ def esm1_model_cache():
             "ESM-1 integration tests require the esm package"
         )
 
-    from pepe.embedders.esm_embedder import ESMEmbedder
-
     from esm import pretrained
 
-    device = torch.device("cpu")
+    from pepe.embedders.esm_embedder import ESMEmbedder
+
     model, alphabet = pretrained.load_model_and_alphabet_hub(ESM1_MODEL_NAME)
     model.eval()
     model.prepend_bos = True

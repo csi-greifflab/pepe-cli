@@ -1,8 +1,10 @@
 import logging
-import torch
 from typing import Any, Dict, List, Optional, Tuple
-from pepe.embedders.base_embedder import BaseEmbedder
+
+import torch
+
 import pepe.utils
+from pepe.embedders.base_embedder import BaseEmbedder
 
 
 # Lazy imports to avoid loading heavy dependencies at import time

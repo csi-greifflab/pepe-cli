@@ -59,7 +59,7 @@ about:
   license_file: LICENSE
   summary: Pipeline for Easy Protein Embedding
   description: |
-    PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting 
+    PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting
     embeddings and attention matrices from protein sequences using pre-trained models.
   doc_url: https://github.com/csi-greifflab/pepe-cli#readme
   dev_url: https://github.com/csi-greifflab/pepe-cli
@@ -71,7 +71,7 @@ extra:
 
 ## Step-by-Step Submission
 
-1.  **Fork Bioconda Recipes**: 
+1.  **Fork Bioconda Recipes**:
     - Go to [bioconda/bioconda-recipes](https://github.com/bioconda/bioconda-recipes) and fork it.
 2.  **Clone your fork**:
     ```bash
