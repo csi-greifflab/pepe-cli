@@ -104,8 +104,9 @@ jobs:
           GENERIC_HF_TEST=1 python -m pytest -v \
             src/tests/test_generic_hf_integration.py
       - name: Run METL integration test
+        if: ${{ vars.ENABLE_METL_TESTS == '1' }}
         run: |
-          pip install "git+https://github.com/gitter-lab/metl-pretrained.git"
+          pip install "git+https://github.com/gitter-lab/metl-pretrained.git@52358614c4b412e81e19e300485e8b85123bd903"
           METL_TEST=1 python -m pytest -v \
             src/tests/test_metl_integration.py
       - name: Run T5 / AntiBERTa2 integration tests

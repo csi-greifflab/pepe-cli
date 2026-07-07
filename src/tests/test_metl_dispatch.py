@@ -38,13 +38,14 @@ class TestMETLDispatch(unittest.TestCase):
         self.assertIn("3d", msg)
         self.assertIn("metl-g-20m-1d", msg)
 
-    def test_select_gitter_lab_metl_routes_to_metl_embedder(self):
+    def test_select_gitter_lab_metl_rejected_early(self):
         with patch("transformers.AutoConfig.from_pretrained") as mock_config:
-            embedder_cls = select_model("gitter-lab/METL")
+            with self.assertRaises(ModelSelectionError) as ctx:
+                select_model("gitter-lab/METL")
 
-        from pepe.embedders.metl_embedder import METLEmbedder
-
-        self.assertIs(embedder_cls, METLEmbedder)
+        msg = str(ctx.exception).lower()
+        self.assertIn("gitter-lab/metl", msg)
+        self.assertIn("metl-g-20m-1d", msg)
         mock_config.assert_not_called()
 
     def test_import_metl_missing_package_has_install_hint(self):

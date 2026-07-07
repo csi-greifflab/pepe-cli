@@ -58,7 +58,7 @@ setup(
     ],
     extras_require={
         "metl": [
-            "metl-pretrained @ git+https://github.com/gitter-lab/metl-pretrained.git"
+            "metl-pretrained @ git+https://github.com/gitter-lab/metl-pretrained.git@52358614c4b412e81e19e300485e8b85123bd903"
         ],
         "esm": ["fair-esm"],
     },

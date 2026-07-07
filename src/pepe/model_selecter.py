@@ -4,7 +4,11 @@ from typing import Tuple, Type
 
 from pepe.embedders.base_embedder import BaseEmbedder
 from pepe.embedders.custom_embedder import CustomEmbedder
-from pepe.model_errors import METL3DNotSupportedError, translate_hf_config_error
+from pepe.model_errors import (
+    METL3DNotSupportedError,
+    ModelSelectionError,
+    translate_hf_config_error,
+)
 
 
 def _get_esm_embedder() -> Type[BaseEmbedder]:
@@ -58,6 +62,11 @@ def _is_metl_model(model_name):
 
 
 def _validate_metl_model_name(model_name):
+    if model_name.lower() in ("gitter-lab/metl", "gitter-lab/metl-pretrained"):
+        raise ModelSelectionError(
+            "gitter-lab/METL is the HuggingFace wrapper and is not supported by PEPE. "
+            "Use a metl-pretrained identifier instead (e.g. metl-g-20m-1d)."
+        )
     if re.search(r"[-_]3d(?:[-_]|$)", model_name, re.I):
         raise METL3DNotSupportedError(
             "METL 3D models (requiring PDB structures) are not supported by PEPE. "

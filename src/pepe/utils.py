@@ -394,12 +394,9 @@ class METLDataset(SequenceDictDataset):
 
     def _encode_sequences(self, data, max_length):
         labels, strs = zip(*data)
-        encoded = []
-        with alive_bar(len(strs), title="Tokenizing sequences...") as bar:
-            for s in strs:
-                seq_encoded = self.data_encoder.encode_sequences([s])[0]
-                encoded.append(seq_encoded)
-                bar()
+        with alive_bar(1, title="Tokenizing sequences...") as bar:
+            encoded = self.data_encoder.encode_sequences(list(strs))
+            bar()
 
         max_encoded_length = max(len(seq_encoded) for seq_encoded in encoded)
         if max_length == "max_length":

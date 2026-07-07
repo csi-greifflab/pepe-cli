@@ -32,7 +32,7 @@ def resolve_metl_ident(model_name):
     return normalized.lower()
 
 
-logger = logging.getLogger("src.embedders.metl_embedder")
+logger = logging.getLogger("pepe.embedders.metl_embedder")
 
 
 class METLEmbedder(BaseEmbedder):
@@ -100,7 +100,7 @@ class METLEmbedder(BaseEmbedder):
             model = model.cuda()
             logger.info("Transferred model to GPU")
         else:
-            logger.info("No GPU available, using CPU")
+            logger.info(f"Using device: {self.device.type}")
 
         return model, data_encoder, num_heads, num_layers, embedding_size
 
