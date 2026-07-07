@@ -24,6 +24,13 @@ def _config(model_type):
     return cfg
 
 
+def _mock_hf_response():
+    """huggingface_hub >=1.0 requires a response with headers."""
+    response = MagicMock()
+    response.headers = {}
+    return response
+
+
 class TestHuggingFaceDispatch(unittest.TestCase):
     """Config-first dispatch for HuggingFace repo ids (username/model-name)."""
 
@@ -91,12 +98,14 @@ class TestTypedConfigErrors(unittest.TestCase):
 
         cases = [
             (
-                RepositoryNotFoundError("404 Client Error", response=None),
+                RepositoryNotFoundError(
+                    "404 Client Error", response=_mock_hf_response()
+                ),
                 ModelNotFoundError,
                 "not found",
             ),
             (
-                GatedRepoError("403 gated", response=None),
+                GatedRepoError("403 gated", response=_mock_hf_response()),
                 GatedModelError,
                 "gated",
             ),
@@ -143,7 +152,7 @@ class TestTypedConfigErrors(unittest.TestCase):
 
         with patch(
             "transformers.AutoConfig.from_pretrained",
-            side_effect=GatedRepoError("403 gated", response=None),
+            side_effect=GatedRepoError("403 gated", response=_mock_hf_response()),
         ):
             with self.assertRaises(ESMCForkRequiredError) as ctx:
                 select_model("biohub/ESMC-300M")
