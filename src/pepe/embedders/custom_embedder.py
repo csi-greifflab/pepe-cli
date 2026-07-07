@@ -8,7 +8,7 @@ import pepe.utils
 from pepe.embedders.base_embedder import BaseEmbedder
 from transformers import AutoTokenizer
 
-logger = logging.getLogger("src.embedders.custom_embedder")
+logger = logging.getLogger("pepe.embedders.custom_embedder")
 
 
 class CustomEmbedder(BaseEmbedder):

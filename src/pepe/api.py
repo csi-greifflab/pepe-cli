@@ -95,6 +95,7 @@ def embed(
         "disable_special_tokens": kwargs.get("disable_special_tokens", False),
         "flatten": kwargs.get("flatten", False),
         "flush_batches_after": kwargs.get("flush_batches_after", 128),
+        "verbose": kwargs.get("verbose", False),
     }
     
     args = SimpleNamespace(**args_dict)

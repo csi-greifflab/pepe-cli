@@ -5,11 +5,18 @@ import shutil
 import tempfile
 import numpy as np
 import torch
+import pytest
 
 # Add src to sys.path
 sys.path.insert(0, os.path.abspath("src"))
 
 import pepe
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.slow,
+    pytest.mark.usefixtures("esm2_model_cache"),
+]
 
 class TestPepeAPI(unittest.TestCase):
     @classmethod
