@@ -41,9 +41,16 @@ def parse_arguments():
         help="Name of the experiment. Will be used to name the output files. If not provided, the output files will be named after the input file.",
     )
     parser.add_argument(
+        "--check_model",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="Dry-run: load config and tokenizer for NAME, print compatibility summary, and exit without embedding.",
+    )
+    parser.add_argument(
         "--model_name",
         type=str,
-        required=True,
+        required=False,
         help="Model name or path to custom model. For custom models, use path to .pt/.pth file or directory containing model files. For predefined models, use model name from supported list.",
     )
     parser.add_argument(
@@ -55,14 +62,14 @@ def parse_arguments():
     parser.add_argument(
         "--fasta_path",
         type=str,
-        required=True,
-        help="Path to the input FASTA file. Required. If no experiment name is provided, the output files will be named after the input file.",
+        required=False,
+        help="Path to the input FASTA file. Required unless --check_model is used. If no experiment name is provided, the output files will be named after the input file.",
     )
     parser.add_argument(
         "--output_path",
         type=str,
-        required=True,
-        help="Directory for output files \n Will generate a subdirectory for outputs of each output_type.\n Will output multiple files if multiple layers are specified with '--layers'. Output file is a single tensor or a list of tensors when --pooling is False.",
+        required=False,
+        help="Directory for output files \n Will generate a subdirectory for outputs of each output_type.\n Will output multiple files if multiple layers are specified with '--layers'. Output file is a single tensor or a list of tensors when --pooling is False. Required unless --check_model is used.",
     )
     parser.add_argument(
         "--substring_path",
@@ -123,6 +130,12 @@ def parse_arguments():
         help="If a sequence exceeds the maximum permitted length for the chosen model, split it into smaller overlapping chunks and concatenate the output representations.",
     )
     parser.add_argument(
+        "--trust_remote_code",
+        action="store_true",
+        help="Allow HuggingFace to download and execute custom Python code from the model repo. "
+        "Required for some models but runs arbitrary code from the repository — only enable for repos you trust.",
+    )
+    parser.add_argument(
         "--split_overlap",
         type=int,
         default=0,
@@ -173,6 +186,11 @@ def parse_arguments():
         default="32",
         choices=["float16", "16", "half", "float32", "32", "full"],
         help="Precision of the output data. Inference during embedding is not affected. Default is 'float32'.",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output including GPU/IO profiling stats. Default is False.",
     )
     parser.add_argument(
         "--device",

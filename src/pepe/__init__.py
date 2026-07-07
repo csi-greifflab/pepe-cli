@@ -7,7 +7,7 @@ except ImportError:
     pass
 
 # Package metadata - single source of truth
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 __package_name__ = "pepe-cli"
 __module_name__ = "pepe"
 __author__ = "Jahn Zhong"
@@ -16,7 +16,7 @@ __description__ = "Pipeline for Easy Protein Embedding - Extract embeddings and 
 __homepage__ = "https://github.com/csi-greifflab/pepe-cli"
 
 
-# Configure logging for the embedairr package
+# Configure logging for the pepe package
 def setup_logging(level=logging.INFO):
     """Set up logging configuration for the PEPE package."""
     # Create formatter
@@ -30,7 +30,7 @@ def setup_logging(level=logging.INFO):
     console_handler.setFormatter(formatter)
 
     # Get root logger for the package
-    logger = logging.getLogger("src")
+    logger = logging.getLogger("pepe")
     logger.setLevel(level)
 
     # Remove existing handlers to avoid duplication

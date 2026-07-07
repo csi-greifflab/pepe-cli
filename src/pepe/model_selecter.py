@@ -1,44 +1,49 @@
+from pepe.embedders.base_embedder import BaseEmbedder
 from pepe.embedders.custom_embedder import CustomEmbedder
+from pepe.model_errors import translate_hf_config_error
 
 import os
+from typing import Any, Tuple, Type
 
 
-def _get_esm_embedder():
+def _get_esm_embedder() -> Type[BaseEmbedder]:
     """Lazy import of ESM embedder to avoid loading heavy dependencies."""
     from pepe.embedders.esm_embedder import ESMEmbedder
 
     return ESMEmbedder
 
 
-def _get_esm2_embedder():
+def _get_esm2_embedder() -> Type[BaseEmbedder]:
     """Lazy import of ESM-2 embedder (HuggingFace transformers)."""
     from pepe.embedders.huggingface_embedder import ESM2Embedder
 
     return ESM2Embedder
 
 
-def _get_esmc_embedder():
+def _get_esmc_embedder() -> Type[BaseEmbedder]:
     """Lazy import of ESMC embedder (Biohub transformers fork)."""
     from pepe.embedders.huggingface_embedder import ESMCEmbedder
 
     return ESMCEmbedder
 
 
-def _get_huggingface_embedders():
+def _get_huggingface_embedders() -> Tuple[Type[BaseEmbedder], Type[BaseEmbedder]]:
     """Lazy import of HuggingFace embedders to avoid loading heavy dependencies."""
     from pepe.embedders.huggingface_embedder import T5Embedder, Antiberta2Embedder
 
     return T5Embedder, Antiberta2Embedder
 
 
-def _get_generic_hf_embedder():
+def _get_generic_hf_embedder() -> Type[BaseEmbedder]:
     """Lazy import of the generic AutoModel-based HuggingFace fallback embedder."""
     from pepe.embedders.huggingface_embedder import GenericHuggingFaceEmbedder
 
     return GenericHuggingFaceEmbedder
 
 
-def select_model(model_name):
+def select_model(
+    model_name: str, trust_remote_code: bool = False
+) -> Type[BaseEmbedder]:
     # 1. Local checkpoints / directories take precedence over any name heuristic,
     #    so a local file or folder is never mistaken for a HuggingFace repo id or a
     #    bare weight name (e.g. a directory called "my_esm2_run/").
@@ -58,7 +63,7 @@ def select_model(model_name):
     #    signal: a fine-tune whose slug says "esm2" but is really a BERT no longer
     #    gets mis-routed.
     if "/" in model_name:
-        return _select_hf_model(model_name)
+        return _select_hf_model(model_name, trust_remote_code=trust_remote_code)
 
     # 3. Bare weight names (no slash) are fair-esm / facebook ESM weight sets, which
     #    have no downloadable config to inspect. Match on the name for these only.
@@ -74,7 +79,9 @@ def select_model(model_name):
     )
 
 
-def _select_hf_model(model_name):
+def _select_hf_model(
+    model_name: str, trust_remote_code: bool = False
+) -> Type[BaseEmbedder]:
     """Dispatch a HuggingFace repo id to an embedder by inspecting its config.
 
     Known architectures get their specialized embedder; everything else (BERT-like
@@ -86,9 +93,13 @@ def _select_hf_model(model_name):
     try:
         from transformers import AutoConfig
 
-        config = AutoConfig.from_pretrained(model_name)
+        config = AutoConfig.from_pretrained(
+            model_name, trust_remote_code=trust_remote_code
+        )
     except Exception as e:
-        _raise_hf_config_error(model_name, e)
+        translate_hf_config_error(
+            model_name, e, trust_remote_code=trust_remote_code
+        )
 
     model_type = (getattr(config, "model_type", "") or "").lower()
 
@@ -107,28 +118,94 @@ def _select_hf_model(model_name):
     # instead of raising.
     import logging
 
-    logging.getLogger("src.model_selecter").info(
+    logging.getLogger("pepe.model_selecter").info(
         f"No specialized embedder for architecture '{model_type or 'unknown'}'; "
         f"using the generic HuggingFace embedder for {model_name}."
     )
     return _get_generic_hf_embedder()
 
 
-def _raise_hf_config_error(model_name, error):
-    """Translate an AutoConfig load failure into an actionable ValueError."""
-    error_msg = str(error)
-    if "esmc" in model_name.lower() or "esmc" in error_msg.lower():
-        raise ValueError(
-            f"ESMC models require Biohub's transformers fork (ESM1 fair-esm is unaffected). "
-            f"Install with: pip install git+https://github.com/Biohub/transformers.git@main"
-        ) from error
-    if "Unrecognized model" in error_msg or "model_type" in error_msg:
-        raise ValueError(
-            f"Model {model_name} appears to be a Keras/TensorFlow model or has an unsupported architecture. PEPE currently supports PyTorch models only. Consider using a PyTorch version or converting the model."
-        ) from error
-    raise ValueError(
-        f"Could not load model config for {model_name}: {error}"
-    ) from error
+# Same threshold BaseEmbedder uses to treat HF sentinel model_max_length
+# (~1e30) as "no enforced limit"; kept as a single source of truth.
+_MODEL_MAX_LENGTH_SENTINEL = int(BaseEmbedder._UNKNOWN_MAX_LENGTH_THRESHOLD)
+
+
+def _format_max_length(config, tokenizer):
+    """Return a human-readable max sequence length, ignoring HF sentinel values."""
+    if hasattr(config, "max_position_embeddings") and config.max_position_embeddings:
+        val = config.max_position_embeddings
+        if val < _MODEL_MAX_LENGTH_SENTINEL:
+            return str(val)
+
+    if hasattr(tokenizer, "model_max_length"):
+        val = tokenizer.model_max_length
+        if val < _MODEL_MAX_LENGTH_SENTINEL:
+            return str(val)
+        return "unknown (no enforced limit)"
+
+    if hasattr(config, "n_positions") and config.n_positions:
+        val = config.n_positions
+        if val < _MODEL_MAX_LENGTH_SENTINEL:
+            return str(val)
+
+    return "unknown"
+
+
+def report_model(model_name, trust_remote_code=False):
+    """Load config + tokenizer only and print a compatibility summary."""
+    import pepe.utils
+
+    from transformers import AutoConfig, AutoTokenizer
+
+    try:
+        config = AutoConfig.from_pretrained(
+            model_name, trust_remote_code=trust_remote_code
+        )
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_name, trust_remote_code=trust_remote_code
+        )
+    except Exception as e:
+        translate_hf_config_error(
+            model_name, e, trust_remote_code=trust_remote_code
+        )
+
+    embedder_cls = select_model(model_name, trust_remote_code=trust_remote_code)
+    embedder_name = embedder_cls.__name__
+    model_type = getattr(config, "model_type", None) or "unknown"
+    max_length = _format_max_length(config, tokenizer)
+    char_level = pepe.utils.is_character_tokenizer(tokenizer)
+    if char_level:
+        tokenizer_type = "character-level"
+    else:
+        tokenizer_type = (
+            "subword (per_token/substring_pooled unreliable; prefer mean_pooled)"
+        )
+
+    logits_available = embedder_name == "ESM2Embedder"
+
+    if embedder_name in ("ESMEmbedder",):
+        attention = "yes (fair-esm contacts)"
+    elif embedder_name == "GenericHuggingFaceEmbedder":
+        attention = "yes (attn_implementation=eager may be required)"
+    elif embedder_name in (
+        "ESM2Embedder",
+        "Antiberta2Embedder",
+        "ESMCEmbedder",
+        "T5Embedder",
+    ):
+        attention = "yes"
+    elif embedder_name == "CustomEmbedder":
+        attention = "depends on model"
+    else:
+        attention = "unknown"
+
+    print(f"Model:           {model_name}")
+    print(f"Architecture:    {model_type}")
+    print(f"Embedder:        {embedder_name}")
+    print(f"Max length:      {max_length}")
+    print(f"Tokenizer:       {tokenizer_type}")
+    print(f"Logits:          {'yes' if logits_available else 'no'}")
+    print(f"Attention:       {attention}")
 
 
 supported_models = [

@@ -90,15 +90,19 @@ def embed(
         "split_long_sequences": kwargs.get("split_long_sequences", False),
         "split_overlap": kwargs.get("split_overlap", 0),
         "force_split_length": kwargs.get("force_split_length"),
+        "trust_remote_code": kwargs.get("trust_remote_code", False),
         "num_workers": kwargs.get("num_workers", 8),
         "disable_special_tokens": kwargs.get("disable_special_tokens", False),
         "flatten": kwargs.get("flatten", False),
         "flush_batches_after": kwargs.get("flush_batches_after", 128),
+        "verbose": kwargs.get("verbose", False),
     }
     
     args = SimpleNamespace(**args_dict)
     
-    selected_model_class = select_model(model_name)
+    selected_model_class = select_model(
+        model_name, trust_remote_code=args.trust_remote_code
+    )
     embedder = selected_model_class(args)
     embedder.run()
     
