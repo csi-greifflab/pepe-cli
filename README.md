@@ -32,13 +32,7 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     pip install git+https://github.com/Biohub/transformers.git@main
     ```
 
-3. *(Optional)* For METL 1D embedding models (e.g. `metl-g-20m-1d`), install the optional backend:
-
-    ```sh
-    pip install pepe-cli[metl]
-    ```
-
-    The underlying `metl-pretrained` package is not on PyPI. PEPE's `[metl]` extra installs it from GitHub; you can also install it directly:
+3. *(Optional)* For METL 1D embedding models (e.g. `metl-g-20m-1d`), install the backend directly from GitHub (it is not on PyPI):
 
     ```sh
     pip install git+https://github.com/gitter-lab/metl-pretrained.git
@@ -233,7 +227,7 @@ results = pepe.embed(
         - biohub/ESMC-300M
         - biohub/ESMC-600M
         - biohub/ESMC-6B
-    - METL 1D models (requires `[metl]` extra; see Quick start)
+    - METL 1D models (requires `metl-pretrained` from GitHub; see Quick start)
         - `metl-g-20m-1d` and other `metl-*-1d` identifiers supported by [metl-pretrained](https://github.com/gitter-lab/metl-pretrained)
     - Custom Hugging Face models
         - Any compatible model from Hugging Face Hub: `username/model-name`
@@ -250,7 +244,7 @@ results = pepe.embed(
 - **`--model_name`** (str): Name of model or link to model. Choose from [List of supported models](../README.md#list-of-supported-models) or use custom models:
   - ESM models: `esm2_t33_650M_UR50D`
   - ESMC models: `biohub/ESMC-300M` (requires Biohub transformers fork; see Quick start)
-  - METL 1D models: `metl-g-20m-1d` (requires `[metl]` extra; see Quick start)
+  - METL 1D models: `metl-g-20m-1d` (requires `metl-pretrained` from GitHub; see Quick start)
   - Hugging Face models: `username/model-name`
   - Custom PyTorch models: `/path/to/model.pt` or `/path/to/model_directory/`
   - Local HF models: `/path/to/local_hf_directory/`

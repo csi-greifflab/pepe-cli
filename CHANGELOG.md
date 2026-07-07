@@ -19,10 +19,10 @@ truth that drives publishing).
 
 ### Added
 - METL 1D protein embeddings via optional `metl-pretrained` backend: install with
-  `pip install pepe-cli[metl]` and use model identifiers such as `metl-g-20m-1d`
+  `pip install git+https://github.com/gitter-lab/metl-pretrained.git` and use model identifiers such as `metl-g-20m-1d`
   (and other `metl-*-1d` names). Dispatch lives in `model_selecter.py`; embedding
   is handled by `METLEmbedder` with `METLDataset` tokenization.
-- `[metl]` and `[esm]` optional dependency extras in `pyproject.toml` and
+- `[esm]` optional dependency extra in `pyproject.toml` and
   `setup.py`.
 - Typed errors `METLPackageRequiredError` and `METL3DNotSupportedError` when
   METL is requested without the extra or when a 3D METL model id is used.
