@@ -28,12 +28,12 @@ class TestESMCModelSelection(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 select_model("biohub/ESMC-300M")
 
-        self.assertIn("pepe-cli[esmc]", str(ctx.exception))
+        self.assertIn("Biohub/transformers", str(ctx.exception))
 
 
 @unittest.skipUnless(
     os.environ.get("ESMC_TEST") == "1",
-    "Set ESMC_TEST=1 to run ESMC integration test (requires pepe-cli[esmc])",
+    "Set ESMC_TEST=1 to run ESMC integration test (requires Biohub transformers fork)",
 )
 class TestESMCIntegration(unittest.TestCase):
     def test_esmc_mean_pooled(self):

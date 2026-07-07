@@ -20,9 +20,9 @@ pepe \
 ```
 
 ### ESMC models
-ESMC (ESM Cambrian) is a distinct architecture from ESM2. It requires the Biohub transformers fork, which coexists with ESM1's `fair-esm` package:
+ESMC (ESM Cambrian) is a distinct architecture from ESM2. It requires Biohub's transformers fork, which coexists with ESM1's `fair-esm` package:
 ```sh
-pip install pepe-cli[esmc]
+pip install git+https://github.com/Biohub/transformers.git@main
 pepe \
     --experiment_name "esmc_test" \
     --model_name "biohub/ESMC-300M" \

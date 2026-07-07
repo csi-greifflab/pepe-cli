@@ -87,8 +87,8 @@ def select_model(model_name):
             error_msg = str(e)
             if "esmc" in model_name.lower() or "esmc" in error_msg.lower():
                 raise ValueError(
-                    f"ESMC models require the Biohub transformers fork (ESM1 fair-esm is unaffected). "
-                    f"Install with: pip install pepe-cli[esmc]"
+                    f"ESMC models require Biohub's transformers fork (ESM1 fair-esm is unaffected). "
+                    f"Install with: pip install git+https://github.com/Biohub/transformers.git@main"
                 ) from e
             if "Unrecognized model" in error_msg or "model_type" in error_msg:
                 raise ValueError(
@@ -128,7 +128,7 @@ supported_models = [
     "Rostlab/ProstT5",
     "alchemab/antiberta2-cssp",
     "alchemab/antiberta2",
-    # ESMC models (requires pip install pepe-cli[esmc])
+    # ESMC models (requires Biohub transformers fork; see README)
     "biohub/ESMC-300M",
     "biohub/ESMC-600M",
     "biohub/ESMC-6B",

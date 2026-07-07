@@ -35,12 +35,6 @@ dependencies = [
     "alive_progress",
 ]
 
-[project.optional-dependencies]
-esmc = [
-    "transformers @ git+https://github.com/Biohub/transformers.git@main",
-    "accelerate>=0.26.0",
-]
-
 [project.urls]
 Homepage = "https://github.com/csi-greifflab/pepe-cli"
 "Bug Reports" = "https://github.com/csi-greifflab/pepe-cli/issues"
