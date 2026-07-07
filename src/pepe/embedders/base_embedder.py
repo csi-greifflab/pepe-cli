@@ -429,10 +429,13 @@ class BaseEmbedder:
             if resume_info:
                 logger.info(f"Resuming from checkpoint: {resume_info}")
 
-        with alive_bar(
-            len(self.sequences),
-            title=f"{self.model_name}: Generating embeddings ...",
-        ) as bar, torch.no_grad():
+        with (
+            alive_bar(
+                len(self.sequences),
+                title=f"{self.model_name}: Generating embeddings ...",
+            ) as bar,
+            torch.no_grad(),
+        ):
             offset = 0
             for (
                 labels,

@@ -264,14 +264,18 @@ class TestReportModel(unittest.TestCase):
         mock_tokenizer.model_max_length = 512
         mock_tokenizer.encode.return_value = [1, 2, 3]
 
-        with patch(
-            "transformers.AutoConfig.from_pretrained", return_value=mock_config
-        ), patch(
-            "transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer
-        ), patch(
-            "pepe.model_selecter.select_model",
-            return_value=MagicMock(__name__="GenericHuggingFaceEmbedder"),
-        ), patch("pepe.utils.is_character_tokenizer", return_value=False):
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch(
+                "transformers.AutoTokenizer.from_pretrained",
+                return_value=mock_tokenizer,
+            ),
+            patch(
+                "pepe.model_selecter.select_model",
+                return_value=MagicMock(__name__="GenericHuggingFaceEmbedder"),
+            ),
+            patch("pepe.utils.is_character_tokenizer", return_value=False),
+        ):
             buf = StringIO()
             with patch("sys.stdout", buf):
                 report_model("someuser/protbert", trust_remote_code=True)

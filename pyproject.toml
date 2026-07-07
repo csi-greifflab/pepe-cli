@@ -11,15 +11,13 @@ authors = [
 description = "Pipeline for Easy Protein Embedding - Extract embeddings and attention matrices from protein sequences"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
@@ -93,9 +91,8 @@ check_untyped_defs = true
 
 [tool.ruff]
 line-length = 88
-# Match the declared floor (requires-python >= 3.8). NOTE: mypy targets 3.10 and
-# the CI matrix starts at 3.9 — decide separately whether to drop 3.8 support.
-target-version = "py38"
+# Matches requires-python (>= 3.10) and the mypy python_version.
+target-version = "py310"
 src = ["src"]
 # Notebooks follow their own conventions (imports mid-cell, etc.); don't lint them.
 extend-exclude = ["notebooks", "*.ipynb"]

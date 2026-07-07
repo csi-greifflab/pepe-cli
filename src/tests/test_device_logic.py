@@ -36,9 +36,11 @@ class TestDeviceLogic(unittest.TestCase):
     @patch("torch.cuda.is_available", return_value=True)
     def test_base_device_logic_gpu_available(self, mock_cuda):
         # Mocking file system calls and substring loading
-        with patch("os.path.exists", return_value=True), patch(
-            "os.makedirs"
-        ), patch.object(BaseEmbedder, "_load_substrings", return_value=None):
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.makedirs"),
+            patch.object(BaseEmbedder, "_load_substrings", return_value=None),
+        ):
             # 1. GPU requested and available
             self.args.device = "cuda"
             base = BaseEmbedder(self.args)
@@ -51,9 +53,11 @@ class TestDeviceLogic(unittest.TestCase):
 
     @patch("torch.cuda.is_available", return_value=True)
     def test_base_device_logic_gpu_specific(self, mock_cuda):
-        with patch("os.path.exists", return_value=True), patch(
-            "os.makedirs"
-        ), patch.object(BaseEmbedder, "_load_substrings", return_value=None):
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.makedirs"),
+            patch.object(BaseEmbedder, "_load_substrings", return_value=None),
+        ):
             # GPU cuda:1 requested and available
             self.args.device = "cuda:1"
             base = BaseEmbedder(self.args)
@@ -62,9 +66,11 @@ class TestDeviceLogic(unittest.TestCase):
 
     @patch("torch.cuda.is_available", return_value=False)
     def test_base_device_logic_gpu_not_available(self, mock_cuda):
-        with patch("os.path.exists", return_value=True), patch(
-            "os.makedirs"
-        ), patch.object(BaseEmbedder, "_load_substrings", return_value=None):
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.makedirs"),
+            patch.object(BaseEmbedder, "_load_substrings", return_value=None),
+        ):
             # GPU requested but NOT available -> should fallback to CPU
             self.args.device = "cuda"
             base = BaseEmbedder(self.args)
