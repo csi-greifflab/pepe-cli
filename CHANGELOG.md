@@ -17,7 +17,13 @@ truth that drives publishing).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-07
+
 ### Added
+- Docker images published to GHCR (`ghcr.io/csi-greifflab/pepe-cli`) on `test` and
+  `main` branch releases. Test tags include `:test` and a dev version tag; main
+  releases include `:latest` and the release version. GitHub release notes for
+  main now include `docker pull` / `docker run` examples.
 - METL 1D protein embeddings via optional `metl-pretrained` backend: install with
   `pip install git+https://github.com/gitter-lab/metl-pretrained.git` and use model identifiers such as `metl-g-20m-1d`
   (and other `metl-*-1d` names). Dispatch lives in `model_selecter.py`; embedding
