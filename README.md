@@ -32,7 +32,29 @@ PEPE (Pipeline for Easy Protein Embedding) is a tool for extracting embeddings a
     pip install git+https://github.com/Biohub/transformers.git@main
     ```
 
-3. Extract embeddings:\
+3. *(Optional)* For METL 1D embedding models (e.g. `metl-g-20m-1d`), install the `metl-pretrained` backend via PEPE's `[metl]` extra. This extra is not yet on PyPI; install from the repository:
+
+    ```sh
+    git clone https://github.com/csi-greifflab/pepe-cli
+    cd pepe-cli
+    pip install -e ".[metl]"
+    ```
+
+    Or install directly from GitHub:
+
+    ```sh
+    pip install "pepe-cli[metl] @ git+https://github.com/csi-greifflab/pepe-cli.git"
+    ```
+
+    Example:
+
+    ```sh
+    pepe --model_name metl-g-20m-1d --fasta_path <file_path> --output_path <directory> --extract_embeddings mean_pooled
+    ```
+
+    **Limitations:** 1D METL models only (`per_token`, `mean_pooled`, `substring_pooled`). Logits and attention outputs are not supported. 3D METL identifiers (requiring structures) and the generic Hugging Face repo id `gitter-lab/METL` are rejected—use a `metl-*-1d` identifier from [metl-pretrained](https://github.com/gitter-lab/metl-pretrained).
+
+4. Extract embeddings:\
     Extract mean pooled embeddings from protein amino acid sequences in FASTA file:
     ```sh
     pepe --experiment_name <optional_string> --fasta_path <file_path> --output_path <directory> --model_name <model_name>
@@ -199,6 +221,8 @@ results = pepe.embed(
         - biohub/ESMC-300M
         - biohub/ESMC-600M
         - biohub/ESMC-6B
+    - METL 1D models (requires `[metl]` extra; see Quick start—install from GitHub until published on PyPI)
+        - `metl-g-20m-1d` and other `metl-*-1d` identifiers supported by [metl-pretrained](https://github.com/gitter-lab/metl-pretrained)
     - Custom Hugging Face models
         - Any compatible model from Hugging Face Hub: `username/model-name`
         - Private models with authentication
@@ -214,6 +238,7 @@ results = pepe.embed(
 - **`--model_name`** (str): Name of model or link to model. Choose from [List of supported models](../README.md#list-of-supported-models) or use custom models:
   - ESM models: `esm2_t33_650M_UR50D`
   - ESMC models: `biohub/ESMC-300M` (requires Biohub transformers fork; see Quick start)
+  - METL 1D models: `metl-g-20m-1d` (requires `[metl]` extra; see Quick start)
   - Hugging Face models: `username/model-name`
   - Custom PyTorch models: `/path/to/model.pt` or `/path/to/model_directory/`
   - Local HF models: `/path/to/local_hf_directory/`
