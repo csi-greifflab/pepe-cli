@@ -16,7 +16,6 @@ def _import_metl():
     except ImportError as e:
         raise METLPackageRequiredError(
             "METL models require metl-pretrained. Install with: "
-            "pip install 'pepe-cli[metl]' or "
             "pip install git+https://github.com/gitter-lab/metl-pretrained.git"
         ) from e
 
