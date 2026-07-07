@@ -17,7 +17,12 @@ truth that drives publishing).
 
 ## [Unreleased]
 
-## [1.3.0] - 2026-07-07
+### Removed
+- Dropped support for Python 3.8 and 3.9. The minimum supported version is now
+  **3.10** (`requires-python >=3.10`), matching the mypy/Ruff target. The CI unit
+  matrix, packaging classifiers, and the conda recipe were updated accordingly.
+
+## [1.4.0] - 2026-07-07
 
 ### Added
 - Typed model-selection errors (`ModelNotFoundError`, `GatedModelError`,
@@ -33,6 +38,91 @@ truth that drives publishing).
 - `pepe --check_model <repo>` dry-run that loads config and tokenizer only and
   prints architecture, embedder choice, max length, tokenizer type, and output
   capabilities before any embedding run.
+- `--verbose` CLI/API flag to enable GPU/IO profiling stats at the end of an
+  embedding run (default off).
+- Streaming vs in-memory regression tests (`test_streaming_roundtrip.py`)
+  covering all standard output types.
+- Session-scoped pytest fixture that loads ESM2-8M once per test session;
+  `@pytest.mark.integration` and `@pytest.mark.slow` markers registered in
+  `conftest.py`.
+
+- PEP 561 typing support via `src/pepe/py.typed` and setuptools package data.
+- `[tool.mypy]` configuration plus a non-blocking CI job that type-checks the
+  public API surface (`api`, model selection, embedders, `utils`).
+- Unit test guarding CLI/`embed()` argument parity (`test_sync_arguments.py`).
+- Custom `.pt` embedder round-trip test (`test_custom_embedder.py`).
+- Gated ESM-1 integration test (`test_esm1_integration.py`; requires `fair-esm`).
+- Gated T5 / AntiBERTa2 integration tests (`T5_ANTIBERTA2_TEST=1`); optional
+  manual ProtT5 checkpoint test (`PROT_T5_MANUAL_TEST=1`).
+- Regression test for mean-pooled reconstruction of split sequences without
+  per_token (`test_reconstruct_mean_pooled.py`).
+
+### Changed
+- Logger namespace unified under `pepe` (was `src.*`) so API and module loggers
+  share handlers.
+- HuggingFace dataset tokenization batches all sequences in one tokenizer call
+  instead of a per-sequence loop.
+- Per-batch `gc.collect()` and non-OOM `torch.cuda.empty_cache()` removed from
+  the embed loop (CUDA cache is still cleared on OOM retry paths).
+- GPU/IO profiling summary is logged only when `--verbose` is set.
+- HuggingFace config/load failures are classified by upstream exception type
+  instead of string-sniffing on error messages (`model_errors.py`).
+- Generic HuggingFace model loading no longer auto-enables `trust_remote_code`
+  based on repo name patterns; use `--trust_remote_code` explicitly when needed.
+
+- Type annotations on the embedding engine and `check_untyped_defs` mypy overrides
+  for core modules (`base_embedder`, HuggingFace/custom/ESM embedders, `utils`,
+  `model_selecter`).
+- CI unit job reports pytest coverage (`--cov=pepe`) and runs sync/custom
+  embedder unit tests.
+- Legacy manual verification scripts removed in favor of pytest
+  (`test_run.py`, `verify_readme.py`, `verify_cross_tool_consistency.py`).
+
+### Fixed
+- Streaming mode silently dropped attention outputs due to memmap registry key
+  mismatches (`attention_matrices_*` vs `attention_head` / `attention_layer` /
+  `attention_model`).
+- `preallocate_disk_space()` failed for model-level outputs such as
+  `attention_model` when assigning memmaps via `setattr` on a dict.
+- `get_substring_positions` did not raise when a CSV substring entry was missing
+  for a sequence label.
+- Substring pooling produced NaN embeddings when a substring did not match the
+  tokenized full sequence; now raises `ValueError` with the sequence label.
+- Missing substring CSV entries raised a generic `assert` (disabled under
+  `python -O`); replaced with `ValueError` listing missing IDs.
+- `MultiIODispatcher` default `heavy_output_type` updated from legacy
+  `embeddings_unpooled` to `per_token`.
+- Generic HuggingFace embedder (`GenericHuggingFaceEmbedder`) now mirrors ESM-2
+  safeguards: length-limit detection and optional sequence splitting via
+  `_check_max_input_length`, eager attention when extracting contacts, and a
+  warning when the tokenizer is subword-based (per-residue outputs may be
+  misaligned). Sentinel `tokenizer.model_max_length` values (~1e30) are treated
+  as unknown limits instead of a real cap.
+
+- In-memory long-sequence chunk reconstruction keyed outputs by output type
+  instead of Python object id, fixing mean-pooled (and related) stitch-up after
+  splits.
+- In-memory long-sequence reconstruction no longer crashes with `KeyError:
+  'per_token'` when `mean_pooled` is requested without `per_token`; per-token
+  representations are now retained internally so the pooled vector can be
+  stitched back from chunks (and are not exported).
+- Custom embedder checkpoint load uses explicit `weights_only=False` for PyTorch
+  2.x `.pt` checkpoints that include non-tensor metadata.
+- Custom embedder `_infer_num_heads` returns a default when inference fails
+  instead of implicitly returning `None`.
+- mypy CI failure for `T5TokenizerFast` lazy import in `huggingface_embedder.py`
+  (transformers stubs omit the top-level re-export; import via submodule with
+  transformers 5.x fallback).
+- `T5Embedder` failed to load production ProtT5 checkpoints
+  (`Rostlab/prot_t5_xl_half_uniref50-enc`) after the switch to `T5TokenizerFast`
+  — their SentencePiece model cannot be converted to a fast tokenizer
+  (`Unigram ... trained with a different algorithm`). Tokenizer loading now falls
+  back to the slow `T5Tokenizer` when the fast conversion fails, so ProtT5 works
+  again while fast-only Hub checkpoints keep using `T5TokenizerFast`.
+
+## [1.3.0] - 2026-07-07
+
+### Added
 - Broader model compatibility: BERT-like and other unrecognized HuggingFace
   architectures now fall back to the generic `AutoModel`-based embedder instead
   of raising, so standard protein encoders such as ProtBert, AntiBERTy and
@@ -47,10 +137,6 @@ truth that drives publishing).
   installed it manually; CI now guards against this regression.
 
 ### Changed
-- HuggingFace config/load failures are classified by upstream exception type
-  instead of string-sniffing on error messages (`model_errors.py`).
-- Generic HuggingFace model loading no longer auto-enables `trust_remote_code`
-  based on repo name patterns; use `--trust_remote_code` explicitly when needed.
 - Model dispatch (`model_selecter.py`) now inspects a HuggingFace repo's config
   (`AutoConfig.model_type`) before matching on its name. A fine-tune whose repo
   slug contains "esm2" but whose architecture is something else is no longer
@@ -63,12 +149,6 @@ truth that drives publishing).
   `pypa/gh-action-pypi-publish` is Docker-based and unaffected.
 
 ### Fixed
-- Generic HuggingFace embedder (`GenericHuggingFaceEmbedder`) now mirrors ESM-2
-  safeguards: length-limit detection and optional sequence splitting via
-  `_check_max_input_length`, eager attention when extracting contacts, and a
-  warning when the tokenizer is subword-based (per-residue outputs may be
-  misaligned). Sentinel `tokenizer.model_max_length` values (~1e30) are treated
-  as unknown limits instead of a real cap.
 - Corrected the PyPI license classifier from "GNU Affero General Public License
   v3" to "MIT License" in `pyproject.toml` and `setup.py`, matching the actual
   `LICENSE` file.

@@ -1,11 +1,14 @@
 import logging
+from typing import Any, Dict, List, Optional, Tuple
+
 import torch
-from pepe.embedders.base_embedder import BaseEmbedder
+
 import pepe.utils
+from pepe.embedders.base_embedder import BaseEmbedder
 
 
 # Lazy imports to avoid loading heavy dependencies at import time
-def _import_esm():
+def _import_esm() -> Any:
     """Lazy import of ESM components to avoid loading issues."""
     try:
         from esm import pretrained
@@ -18,11 +21,11 @@ def _import_esm():
         ) from e
 
 
-logger = logging.getLogger("src.embedders.esm_embedder")
+logger = logging.getLogger("pepe.embedders.esm_embedder")
 
 
 class ESMEmbedder(BaseEmbedder):
-    def __init__(self, args):
+    def __init__(self, args: Any) -> None:
         super().__init__(args)
         self.sequences = pepe.utils.fasta_to_dict(args.fasta_path)
         self.num_sequences = len(self.sequences)
@@ -50,8 +53,14 @@ class ESMEmbedder(BaseEmbedder):
         )  # tokenize and batch sequences and update max_input_length
         self._set_output_objects()
 
-    def _initialize_model(self, model_name):
+    def _initialize_model(
+        self,
+        model_link: Optional[str] = None,
+        tokenizer_path: Optional[str] = None,
+    ) -> Tuple[Any, ...]:
         """Initialize the model, tokenizer"""
+        assert model_link is not None
+        model_name = model_link
         #  Loading the pretrained model and alphabet for tokenization
         logger.info("Loading model...")
 
@@ -62,16 +71,16 @@ class ESMEmbedder(BaseEmbedder):
         model, alphabet = pretrained.load_model_and_alphabet_hub(model_name)
         model.eval()  # Setting the model to evaluation mode
         if not self.disable_special_tokens:
-            model.append_eos = True if not model_name.startswith("esm1") else False  # type: ignore
-            model.prepend_bos = True  # type: ignore
+            model.append_eos = True if not model_name.startswith("esm1") else False
+            model.prepend_bos = True
         else:
-            model.append_eos = False  # type: ignore
-            model.prepend_bos = False  # type: ignore
+            model.append_eos = False
+            model.prepend_bos = False
 
-        num_heads = model.layers[0].self_attn.num_heads  # type: ignore
-        num_layers = len(model.layers)  # type: ignore
+        num_heads = model.layers[0].self_attn.num_heads
+        num_layers = len(model.layers)
         embedding_size = (
-            model.embed_tokens.embedding_dim  # type: ignore
+            model.embed_tokens.embedding_dim
             if model_name.startswith("esm1")
             else model.embed_dim
         )
@@ -92,7 +101,7 @@ class ESMEmbedder(BaseEmbedder):
             model.append_eos,
         )
 
-    def get_special_tokens(self):
+    def get_special_tokens(self) -> torch.Tensor:
         special_tokens = self.alphabet.all_special_tokens
         special_token_ids = torch.tensor(
             [self.alphabet.tok_to_idx[tok] for tok in special_tokens],
@@ -101,22 +110,28 @@ class ESMEmbedder(BaseEmbedder):
         )
         return special_token_ids
 
-    def _load_layers(self, layers):
+    def _load_layers(self, layers: Optional[List[int]] = None) -> List[int]:
         if layers is None:
-            return list(range(1, self.model.num_layers + 1))  # type: ignore
+            return list(range(1, self.model.num_layers + 1))
         if not layers:
             layers = [-1]
         # Checking if the specified representation layers are valid
         assert all(
-            -(self.model.num_layers + 1) <= i <= self.model.num_layers for i in layers  # type: ignore
+            -(self.model.num_layers + 1) <= i <= self.model.num_layers for i in layers
         )
         layers = [
-            (i + self.model.num_layers + 1) % (self.model.num_layers + 1)  # type: ignore
+            (i + self.model.num_layers + 1) % (self.model.num_layers + 1)
             for i in layers
         ]
         return layers
 
-    def _load_data(self, sequences, substring_dict=None):
+    def _load_data(
+        self,
+        sequences: Optional[Dict[str, str]] = None,
+        substring_dict: Optional[Dict[str, str]] = None,
+        bracket_type: Optional[Any] = None,
+    ) -> Tuple[Any, Any]:
+        assert sequences is not None
         # Creating a dataset from the input fasta file
         dataset = pepe.utils.ESMDataset(
             sequences,
@@ -124,8 +139,8 @@ class ESMEmbedder(BaseEmbedder):
             self.context,
             self.alphabet,
             self.max_input_length,
-            self.prepend_bos,  # type: ignore
-            self.append_eos,  # type: ignore
+            self.prepend_bos,
+            self.append_eos,
         )
         # Generating batch indices based on token count
         logger.info("Generating batches...")
@@ -141,13 +156,13 @@ class ESMEmbedder(BaseEmbedder):
 
     def _compute_outputs(
         self,
-        model,
-        toks,
-        attention_mask,
-        return_embeddings,
-        return_contacts,
-        return_logits,
-    ):
+        model: Any,
+        toks: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
+        return_embeddings: bool,
+        return_contacts: bool,
+        return_logits: bool = False,
+    ) -> Tuple[Optional[Any], Optional[Any], Optional[Any]]:
         outputs = model(
             toks,
             repr_layers=self.layers,

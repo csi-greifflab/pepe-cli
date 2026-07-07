@@ -1,4 +1,5 @@
 """Smoke tests for ESMC embedding modes. Run with ESMC_TEST=1."""
+
 import os
 import sys
 import unittest
@@ -29,7 +30,9 @@ class TestESMCEmbeddingModes(unittest.TestCase):
         return pepe.embed(**defaults)
 
     def test_per_token(self):
-        sequences = {"seq1": "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAHKLRVDPVNFKLLSHCLLVTLAAHLPAEFTPAVHASLDKFLASVSTVLTSKYR"}
+        sequences = {
+            "seq1": "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAHKLRVDPVNFKLLSHCLLVTLAAHLPAEFTPAVHASLDKFLASVSTVLTSKYR"
+        }
         results = self._embed(
             sequences=sequences,
             extract_embeddings=["per_token"],

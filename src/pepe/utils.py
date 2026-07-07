@@ -1,22 +1,23 @@
-import logging
-from typing import Sequence
-from torch.utils.data import Dataset
-import re
-import torch
-import time
 import gc
-import os
 import json
-from transformers import RoFormerTokenizer, T5Tokenizer
-import threading, queue
-from alive_progress import alive_bar
+import logging
+import os
+import queue
+import re
 import shutil
+import threading
+import time
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-logger = logging.getLogger("src.utils")
+import torch
+from alive_progress import alive_bar
+from torch.utils.data import Dataset
+
+logger = logging.getLogger("pepe.utils")
 
 
 class TokenBudgetBatchSampler:
-    def __init__(self, dataset, token_budget):
+    def __init__(self, dataset: Any, token_budget: int) -> None:
         self.dataset = dataset
         self.token_budget = token_budget
 
@@ -29,7 +30,7 @@ class TokenBudgetBatchSampler:
 
         # dataset[idx] -> (label, seq_str, toks, ...)
         sample_seq_len = len(dataset[0][2])
-        
+
         if sample_seq_len > token_budget:
             logger.warning(
                 f"A sequence has length {sample_seq_len}, which exceeds the specified token budget (batch_size) of {token_budget}. "
@@ -41,24 +42,34 @@ class TokenBudgetBatchSampler:
 
         self.batches = self._create_batches()
 
-    def _create_batches(self):
+    def _create_batches(self) -> List[List[int]]:
         indices = list(range(len(self.dataset)))
         return [
             indices[i : i + self.batch_size]
             for i in range(0, len(indices), self.batch_size)
         ]
 
-    def __iter__(self):
+    def __iter__(self) -> Any:
         return iter(self.batches)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.batches)
 
 
-
-
 class SequenceDictDataset(Dataset):
-    def __init__(self, sequences, substring_dict, context, bracket_type = "square"):
+    substring_dict: Optional[Dict[str, str]]
+    encoded_data: List[Any]
+    encoded_substring_data: List[Any]
+    pad_token_id: int
+    substring_masks: List[Any]
+
+    def __init__(
+        self,
+        sequences: Dict[str, str],
+        substring_dict: Optional[Dict[str, str]],
+        context: Any,
+        bracket_type: str = "square",
+    ) -> None:
         self.data = list(sequences.items())  # (label, seq)
         if substring_dict:
             self.substring_dict = substring_dict
@@ -76,30 +87,42 @@ class SequenceDictDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-    def _filter_substrings(self):
+    def _filter_substrings(self) -> Any:
         """Filter the substring_dict to only include sequences that are in the dataset."""
+        assert self.substring_dict is not None
         labels, _ = zip(*self.data)
         filtered_substring_dict = {
-            label: self.substring_dict[label] for label in labels if label in self.substring_dict  # type: ignore
+            label: self.substring_dict[label]
+            for label in labels
+            if label in self.substring_dict
         }
-        assert len(filtered_substring_dict) == len(
-            self.data
-        ), "Not all sequences have matching substrings."
+        if len(filtered_substring_dict) != len(self.data):
+            missing = [label for label in labels if label not in self.substring_dict]
+            raise ValueError(
+                "Not all sequences have matching substrings. "
+                f"Missing substring entries for: {', '.join(missing)}"
+            )
         return filtered_substring_dict.items()
 
     def _get_substring_masks(self):
         """Mask tokens from sequence that are not in the provided substring."""
         # Get the full sequences and substring
-        full_sequence_tokens = [entry[2] for entry in self.encoded_data]  # type: ignore
-        substring_tokens = [entry[2] for entry in self.encoded_substring_data]  # type: ignore
+        full_sequence_tokens = [entry[2] for entry in self.encoded_data]
+        substring_tokens = [entry[2] for entry in self.encoded_substring_data]
 
         # Create masks for each sequence
-        masks = [
-            self._find_subsequence(full_seq, substring, self.pad_token_id)  # type: ignore
-            for full_seq, substring in zip(full_sequence_tokens, substring_tokens)
-        ]
+        masks = []
+        for (label, _, _, _), full_seq, substring in zip(
+            self.encoded_data, full_sequence_tokens, substring_tokens
+        ):
+            mask = self._find_subsequence(full_seq, substring, self.pad_token_id)
+            if mask.sum() == 0:
+                raise ValueError(
+                    f"Substring for sequence '{label}' not found in the tokenized full sequence."
+                )
+            masks.append(mask)
 
-        return list(masks)
+        return masks
 
     def _find_subsequence(self, full_tensor, subtensor, pad_token_id=0):
         subsequence_mask = torch.zeros_like(full_tensor)
@@ -169,22 +192,32 @@ class HuggingFaceDataset(SequenceDictDataset):
             )  # (label, seq, toks, attention_mask)
             self.substring_masks = self._get_substring_masks()
 
-    def _encode_sequences(self, data, tokenizer, max_length, add_special_tokens, gapped_sequences = True):
-        labels, strs = zip(*data)
+    def _encode_sequences(
+        self, data, tokenizer, max_length, add_special_tokens, gapped_sequences=True
+    ):
+        labels, raw_strs = zip(*data)
+        strs: List[str]
         if gapped_sequences:
-            strs = gap_sequence(strs, self.bracket_type)
+            strs = list(gap_sequence(list(raw_strs), self.bracket_type))
             max_token_length = max(len(seq.split(" ")) for seq in strs)
         else:
             # For other tokenizers, use the default tokenization
+            strs = list(raw_strs)
             max_token_length = max(len(seq) for seq in strs)
 
         # Account for special tokens (if any)
-        special_tokens_count = len(tokenizer.encode("", add_special_tokens=add_special_tokens)) if hasattr(tokenizer, "encode") else 0
+        special_tokens_count = (
+            len(tokenizer.encode("", add_special_tokens=add_special_tokens))
+            if hasattr(tokenizer, "encode")
+            else 0
+        )
         max_token_length += special_tokens_count
 
         if max_length == "max_length":
             max_length = max_token_length
-            logger.info(f"Setting max_length to {max_length} (including {special_tokens_count} special tokens).")
+            logger.info(
+                f"Setting max_length to {max_length} (including {special_tokens_count} special tokens)."
+            )
         else:
             max_length = int(max_length)
             if max_length < max_token_length:
@@ -192,24 +225,17 @@ class HuggingFaceDataset(SequenceDictDataset):
                     f"max_length {max_length} is less than the length of the longest sequence + special tokens ({max_token_length}). Setting max_length to {max_token_length}."
                 )
                 max_length = max_token_length
-        loop_input_ids = []
-        loop_attention_mask = []
-        with alive_bar(len(strs), title="Tokenizing sequences...") as bar:
-            for s in strs:
-                out = tokenizer(
-                    s,
-                    truncation=True,
-                    padding="max_length",
-                    max_length=max_length,
-                    add_special_tokens=add_special_tokens,
-                    return_tensors="pt",
-                )
-                loop_input_ids.append(out.input_ids)
-                loop_attention_mask.append(out.attention_mask)
-                bar()
-
-        toks = torch.cat(loop_input_ids, dim=0)
-        attention_masks = torch.cat(loop_attention_mask, dim=0)
+        logger.info(f"Tokenizing {len(strs)} sequences...")
+        out = tokenizer(
+            list(strs),
+            truncation=True,
+            padding="max_length",
+            max_length=max_length,
+            add_special_tokens=add_special_tokens,
+            return_tensors="pt",
+        )
+        toks = out.input_ids
+        attention_masks = out.attention_mask
         return list(zip(labels, strs, list(toks), list(attention_masks)))
 
     def get_max_encoded_length(self):
@@ -283,38 +309,39 @@ class ESMDataset(SequenceDictDataset):
         self, data, alphabet, max_length, prepend_bos=True, append_eos=True
     ):
         labels, strs = zip(*data)
-        encoded = []
-        with alive_bar(len(strs), title="Tokenizing sequences...") as bar:
-            for s in strs:
-                seq_encoded = alphabet.encode(s)
-                encoded.append(seq_encoded)
-                bar()
+        logger.info(f"Tokenizing {len(strs)} sequences...")
 
-        max_encoded_length = max(len(seq_encoded) for seq_encoded in encoded)
+        orig_prepend = alphabet.prepend_bos
+        orig_append = alphabet.append_eos
+        alphabet.prepend_bos = prepend_bos
+        alphabet.append_eos = append_eos
+        try:
+            _, _, tokens = alphabet.get_batch_converter()(list(zip(labels, strs)))
+        finally:
+            alphabet.prepend_bos = orig_prepend
+            alphabet.append_eos = orig_append
+
+        max_encoded_length = tokens.shape[1] - int(prepend_bos) - int(append_eos)
         if max_length == "max_length":
-            max_length = max_encoded_length
+            target_length = max_encoded_length
         else:
             max_length = int(max_length)
             if max_length < max_encoded_length:
                 logger.warning(
                     f"max_length {max_length} is less than the length of the longest sequence: {max_encoded_length}. Setting max_length to {max_encoded_length}."
                 )
-                max_length = max_encoded_length
-        tokens = torch.empty(
-            (len(encoded), max_length + int(prepend_bos) + int(append_eos)),
-            dtype=torch.int64,
-        )
-        tokens.fill_(alphabet.padding_idx)
-        for i, seq_encoded in enumerate(encoded):
-            if prepend_bos:
-                tokens[i, 0] = alphabet.cls_idx
-            seq = torch.tensor(seq_encoded, dtype=torch.int64)
-            tokens[
-                i,
-                int(prepend_bos) : len(seq_encoded) + int(prepend_bos),
-            ] = seq
-            if append_eos:
-                tokens[i, len(seq_encoded) + int(prepend_bos)] = alphabet.eos_idx
+                target_length = max_encoded_length
+            else:
+                target_length = max_length
+
+        target_width = target_length + int(prepend_bos) + int(append_eos)
+        if tokens.shape[1] < target_width:
+            padded = tokens.new_full(
+                (tokens.shape[0], target_width), alphabet.padding_idx
+            )
+            padded[:, : tokens.shape[1]] = tokens
+            tokens = padded
+
         return list(zip(labels, strs, list(tokens)))
 
     def get_max_encoded_length(self):
@@ -342,6 +369,7 @@ class ESMDataset(SequenceDictDataset):
         else:
             return labels, seqs, toks, None, None
 
+
 class CustomDataset(SequenceDictDataset):
     """
     Dataset class for custom embedder.
@@ -355,7 +383,7 @@ class CustomDataset(SequenceDictDataset):
         tokenizer,
         max_length,
         add_special_tokens=True,
-        gapped_sequences = True,
+        gapped_sequences=True,
     ):
         super().__init__(sequences, substring_dict, context)
         self.tokenizer = tokenizer
@@ -380,43 +408,39 @@ class CustomDataset(SequenceDictDataset):
             )
             self.substring_masks = self._get_substring_masks()
 
-    def _encode_sequences(self, data, tokenizer, max_length, add_special_tokens, gapped_sequences = True):
+    def _encode_sequences(
+        self, data, tokenizer, max_length, add_special_tokens, gapped_sequences=True
+    ):
         """Encode sequences using the tokenizer."""
-        labels, strs = zip(*data)
+        labels, raw_strs = zip(*data)
+        strs: List[str]
 
         if gapped_sequences:
-            strs = gap_sequence(strs)
+            strs = list(gap_sequence(list(raw_strs)))
             max_token_length = max(len(seq.split(" ")) for seq in strs)
         else:
             # For other tokenizers, use the default tokenization
+            strs = list(raw_strs)
             max_token_length = max(len(seq) for seq in strs)
 
         # Convert max_length to int if needed
         if max_length == "max_length":
-            max_token_length = max(len(s) for s in strs) + (2 if add_special_tokens else 0)
-
-        encoded_sequences = []
-        for label, seq in zip(labels, strs):
-            # Tokenize the sequence
-            tokens = tokenizer(
-                seq,
-                truncation=True,
-                padding="max_length",
-                max_length=max_token_length,
-                add_special_tokens=add_special_tokens,
-                return_tensors="pt",
+            max_token_length = max(len(s) for s in strs) + (
+                2 if add_special_tokens else 0
             )
 
-            encoded_sequences.append(
-                (
-                    label,
-                    seq,
-                    tokens["input_ids"].squeeze(0),
-                    tokens["attention_mask"].squeeze(0),
-                )
-            )
-
-        return encoded_sequences
+        logger.info(f"Tokenizing {len(strs)} sequences...")
+        out = tokenizer(
+            list(strs),
+            truncation=True,
+            padding="max_length",
+            max_length=max_token_length,
+            add_special_tokens=add_special_tokens,
+            return_tensors="pt",
+        )
+        toks = out["input_ids"]
+        attention_masks = out["attention_mask"]
+        return list(zip(labels, strs, list(toks), list(attention_masks)))
 
     def get_max_encoded_length(self):
         """Get maximum encoded sequence length."""
@@ -452,9 +476,14 @@ class CustomDataset(SequenceDictDataset):
         else:
             return labels, seqs, toks, attn_mask
 
+
 def check_input_tokens(
-    valid_tokens, sequences, model_name, bracket_type="square", split_long_sequences=False
-):
+    valid_tokens: Any,
+    sequences: Dict[str, str],
+    model_name: str,
+    bracket_type: str = "square",
+    split_long_sequences: bool = False,
+) -> None:
     def __str_to_list(sequence, bracket_type="square"):
         if bracket_type == "square":
             return re.findall(r"\[.*?\]|.", sequence)
@@ -468,10 +497,12 @@ def check_input_tokens(
     ) as bar:
         for label, sequence in sequences.items():
             sequence = __str_to_list(sequence, bracket_type)
-            if "antiberta" in model_name and not split_long_sequences:  # check for longest sequence
-                assert (
-                    len(sequence) <= 256
-                ), f"Antiberta2 does not support sequences longer than 256 tokens. Found {len(sequence)} tokens in sequence {label}. Use --split_long_sequences to process longer sequences."
+            if (
+                "antiberta" in model_name and not split_long_sequences
+            ):  # check for longest sequence
+                assert len(sequence) <= 256, (
+                    f"Antiberta2 does not support sequences longer than 256 tokens. Found {len(sequence)} tokens in sequence {label}. Use --split_long_sequences to process longer sequences."
+                )
 
             if not set(sequence).issubset(valid_tokens):
                 raise ValueError(
@@ -486,13 +517,13 @@ _CHARACTER_TOKENIZER_PROBE = "ACDEFGHIKLMNPQRSTVWY"
 
 def is_character_tokenizer(tokenizer) -> bool:
     """Return True when one amino acid maps to one token (no subword merging)."""
-    encoded = tokenizer.encode(
-        _CHARACTER_TOKENIZER_PROBE, add_special_tokens=False
-    )
+    encoded = tokenizer.encode(_CHARACTER_TOKENIZER_PROBE, add_special_tokens=False)
     return len(encoded) == len(_CHARACTER_TOKENIZER_PROBE)
 
 
-def warn_if_non_character_tokenizer(tokenizer, model_name=None):
+def warn_if_non_character_tokenizer(
+    tokenizer: Any, model_name: Optional[str] = None
+) -> None:
     """Log a prominent warning when the tokenizer is not character-level."""
     if is_character_tokenizer(tokenizer):
         return
@@ -505,11 +536,11 @@ def warn_if_non_character_tokenizer(tokenizer, model_name=None):
     )
 
 
-def fasta_to_dict(fasta_path):
+def fasta_to_dict(fasta_path: str) -> Dict[str, str]:
     """Convert FASTA file into a dictionary: {id: raw_sequence}."""
-    seq_dict = {}
-    sequence_id = None
-    sequence_aa = []
+    seq_dict: Dict[str, str] = {}
+    sequence_id: Optional[str] = None
+    sequence_aa: List[str] = []
 
     def flush():
         nonlocal sequence_id, sequence_aa
@@ -528,24 +559,31 @@ def fasta_to_dict(fasta_path):
     flush()
 
     return seq_dict
-def get_bracket_type(tokenizer):
+
+
+def get_bracket_type(tokenizer: Any) -> str:
     """
     Attempt to determine if special tokens use [ ] or < > brackets.
     Defaults to 'square' with a warning if unable to determine.
     """
     try:
         special_tokens = []
-        if hasattr(tokenizer, "special_tokens_map") and "additional_special_tokens" in tokenizer.special_tokens_map:
+        if (
+            hasattr(tokenizer, "special_tokens_map")
+            and "additional_special_tokens" in tokenizer.special_tokens_map
+        ):
             tokens = tokenizer.special_tokens_map["additional_special_tokens"]
             if tokens and len(tokens) > 0:
                 special_tokens.append(tokens[0])
-        
+
         if not special_tokens and hasattr(tokenizer, "all_special_tokens"):
             if tokenizer.all_special_tokens:
                 special_tokens.append(tokenizer.all_special_tokens[0])
-        
+
         if not special_tokens:
-            logger.warning("Could not find any special tokens. Defaulting to 'square' brackets.")
+            logger.warning(
+                "Could not find any special tokens. Defaulting to 'square' brackets."
+            )
             return "square"
 
         first_char = special_tokens[0][0]
@@ -554,12 +592,18 @@ def get_bracket_type(tokenizer):
         elif first_char == "[":
             return "square"
         else:
-            logger.warning(f"Unrecognized special token format (starts with '{first_char}'). Defaulting to 'square' brackets.")
+            logger.warning(
+                f"Unrecognized special token format (starts with '{first_char}'). Defaulting to 'square' brackets."
+            )
             return "square"
     except Exception as e:
-        logger.warning(f"Error determining bracket type: {e}. Defaulting to 'square' brackets.")
+        logger.warning(
+            f"Error determining bracket type: {e}. Defaulting to 'square' brackets."
+        )
         return "square"
-def gap_sequence(sequences: Sequence[str], bracket_type = "square") -> Sequence[str]:
+
+
+def gap_sequence(sequences: Sequence[str], bracket_type: str = "square") -> List[str]:
     if bracket_type == "square":
         seqs = [" ".join(re.findall(r"\[.*?\]|.", sequence)) for sequence in sequences]
     elif bracket_type == "angle":
@@ -568,7 +612,8 @@ def gap_sequence(sequences: Sequence[str], bracket_type = "square") -> Sequence[
         raise ValueError(f"Invalid bracket type: {bracket_type}")
     return seqs
 
-def flush_memmaps(obj):
+
+def flush_memmaps(obj: Any) -> None:
     """Recursively flush memory maps."""
     if hasattr(obj, "flush") and callable(obj.flush):
         obj.flush()
@@ -579,7 +624,7 @@ def flush_memmaps(obj):
             flush_memmaps(value)
 
 
-def check_disk_free_space(path, min_free_bytes):
+def check_disk_free_space(path: str, min_free_bytes: int) -> None:
     _, _, free = shutil.disk_usage(path)
     if free < min_free_bytes:
         raise ValueError(
@@ -600,7 +645,7 @@ class IOFlushWorker(threading.Thread):
             memmap_registry  # Dict: (output_type, layer, head) → memmap
         )
         self.flush_limit = flush_bytes_limit
-        self.write_q = queue.Queue(maxsize=128)
+        self.write_q: queue.Queue[Any] = queue.Queue(maxsize=128)
         self.buffer = {}  # (output_type, layer, head) → list of (offset, array)
         self.buffered_bytes = {}  # (output_type, layer, head) → total bytes
         self.total_buffered = 0
@@ -719,8 +764,10 @@ class IOFlushWorker(threading.Thread):
                 self.mark_range_completed(output_type, layer, head, offset, len(arr))
             mmap_handle.flush()
             duration = time.time() - t0
-            if duration > 1.0: # Only log slow flushes
-                logger.info(f"[IOFlushWorker] Slow flush for {key}: {duration:.2f}s for {batch_count} batches ({total_elements} elements)")
+            if duration > 1.0:  # Only log slow flushes
+                logger.info(
+                    f"[IOFlushWorker] Slow flush for {key}: {duration:.2f}s for {batch_count} batches ({total_elements} elements)"
+                )
         except Exception as e:
             logger.error(f"[IOFlushWorker] Exception during flush: {e}")
             raise e
@@ -733,7 +780,7 @@ class IOFlushWorker(threading.Thread):
         # Check if this range was already completed (crash recovery)
         if self.is_range_completed(output_type, layer, head, offset, len(array)):
             logger.debug(
-                f"[IOFlushWorker] Skipping already completed range: {output_type}, {layer}, {head}, {offset}-{offset+len(array)}"
+                f"[IOFlushWorker] Skipping already completed range: {output_type}, {layer}, {head}, {offset}-{offset + len(array)}"
             )
             return
 
@@ -769,7 +816,7 @@ class IOFlushWorker(threading.Thread):
             max_wait_time: Maximum time to wait for pending operations (seconds)
             force_shutdown: If True, force shutdown after max_wait_time even if work remains
         """
-        logger.info(f"[IOFlushWorker] Initiating shutdown...")
+        logger.info("[IOFlushWorker] Initiating shutdown...")
 
         # Signal that we're shutting down
         self.shutdown_flag.set()
@@ -855,7 +902,7 @@ class MultiIODispatcher:
         memmap_registry,
         num_workers=4,
         flush_bytes_limit=64 * 1024 * 1024,
-        heavy_output_type="embeddings_unpooled",
+        heavy_output_type="per_token",
         heavy_proportion=0.75,
         checkpoint_dir=None,
     ):
@@ -887,9 +934,11 @@ class MultiIODispatcher:
             self.num_heavy_workers = 0
             self.num_light_workers = num_workers
         elif num_workers == 1:
-            logger.info("[MultiIODispatcher] Only 1 worker available. Assigning all keys to this worker.")
+            logger.info(
+                "[MultiIODispatcher] Only 1 worker available. Assigning all keys to this worker."
+            )
             self.num_heavy_workers = 1
-            self.num_light_workers = 1 # Both point to the same worker
+            self.num_light_workers = 1  # Both point to the same worker
         else:
             self.num_heavy_workers = max(1, int(num_workers * heavy_proportion))
             self.num_light_workers = num_workers - self.num_heavy_workers
@@ -899,7 +948,7 @@ class MultiIODispatcher:
         self.light_workers = []
 
         # Distribute files across workers by hashing the key
-        sharded_registries = [{} for _ in range(num_workers)]
+        sharded_registries: List[Dict[Any, Any]] = [{} for _ in range(num_workers)]
 
         for key, mmap in memmap_registry.items():
             if num_workers == 1:
@@ -911,7 +960,9 @@ class MultiIODispatcher:
                     shard_id = hash(key) % self.num_heavy_workers
                 else:
                     # Assign light keys to light workers
-                    shard_id = self.num_heavy_workers + (hash(key) % self.num_light_workers)
+                    shard_id = self.num_heavy_workers + (
+                        hash(key) % self.num_light_workers
+                    )
             sharded_registries[shard_id][key] = mmap
 
         for i, reg in enumerate(sharded_registries):
@@ -931,7 +982,9 @@ class MultiIODispatcher:
             self.light_workers = self.workers
         else:
             self.heavy_workers = (
-                self.workers[: self.num_heavy_workers] if self.num_heavy_workers > 0 else []
+                self.workers[: self.num_heavy_workers]
+                if self.num_heavy_workers > 0
+                else []
             )
             self.light_workers = self.workers[self.num_heavy_workers :]
 
@@ -977,7 +1030,7 @@ class MultiIODispatcher:
         )
         total_completed_bytes = 0
 
-        resume_info = {
+        resume_info: Dict[str, Any] = {
             "global_checkpoint_file": self.global_checkpoint_file,
             "total_completed_ranges": total_completed_ranges,
             "num_workers": len(self.workers),
@@ -1033,7 +1086,7 @@ class MultiIODispatcher:
                     for key, ranges in self.global_completed_ranges.items():
                         total_bytes = sum(end - start for start, end in ranges)
                         logger.info(
-                            f"  {key}: {len(ranges)} ranges, {total_bytes / (1024*1024):.1f}MB"
+                            f"  {key}: {len(ranges)} ranges, {total_bytes / (1024 * 1024):.1f}MB"
                         )
 
             except Exception as e:
@@ -1113,7 +1166,7 @@ class MultiIODispatcher:
             return
 
         ranges = sorted(self.global_completed_ranges[key])
-        merged = []
+        merged: List[Tuple[int, int]] = []
 
         for start, end in ranges:
             if merged and start <= merged[-1][1]:

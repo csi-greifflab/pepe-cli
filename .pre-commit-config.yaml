@@ -1,0 +1,81 @@
+# Pre-commit hooks — a fast, local first line of defense that shifts cheap,
+# deterministic checks left so they don't waste a CI round-trip. These do NOT
+# replace CI: CI remains the source of truth (full Python matrix + the heavy
+# model-download integration tests) and re-runs these same hooks via
+# `pre-commit run --all-files` so nothing slips through when a hook is skipped.
+#
+# Setup:
+#   pip install -e .[dev]
+#   pre-commit install                      # commit-time hooks
+#   pre-commit install --hook-type pre-push # pre-push hooks (unit tests)
+#
+# `git commit --no-verify` bypasses hooks locally, but CI will still enforce them.
+
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  # Generic hygiene fixers (run at commit time).
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        # The conda recipe is a Jinja2 template (`{% set %}` / `{{ }}`), not plain
+        # YAML, so the strict parser can't read it.
+        exclude: ^\.github/conda/meta\.yaml$
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: mixed-line-ending
+
+  # Ruff: lint (with autofix) + format. One tool in place of black/isort/flake8.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Fast mocked unit tests — run at PUSH time only (too slow for every commit).
+  # Mirrors the CI `unit` job's file list; model-download tests are excluded and
+  # stay CI-only.
+  - repo: local
+    hooks:
+      - id: pytest-unit
+        name: pytest (fast unit tests)
+        entry: python -m pytest -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        args:
+          - src/tests/test_parse_arguments.py
+          - src/tests/test_sync_arguments.py
+          - src/tests/test_device_logic.py
+          - src/tests/test_load_layers_default.py
+          - src/tests/test_model_selection.py
+          - src/tests/test_generic_safeguards.py
+          - src/tests/test_custom_embedder.py
+          - src/tests/test_reconstruct_mean_pooled.py
+
+      # OPT-IN (disabled by default): local mypy at push time, using the repo's
+      # venv and the existing [tool.mypy] config. CI already runs mypy
+      # (non-blocking); enable this if you want type errors to block locally.
+      # Remove the `stages: [manual]` line to activate at pre-push.
+      - id: mypy-local
+        name: mypy (scoped, opt-in)
+        entry: python -m mypy
+        language: system
+        pass_filenames: false
+        stages: [manual]
+        args:
+          - src/pepe/api.py
+          - src/pepe/model_selecter.py
+          - src/pepe/model_errors.py
+          - src/pepe/embedders/base_embedder.py
+          - src/pepe/embedders/huggingface_embedder.py
+          - src/pepe/embedders/custom_embedder.py
+          - src/pepe/embedders/esm_embedder.py
+          - src/pepe/utils.py

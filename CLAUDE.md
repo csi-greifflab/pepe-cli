@@ -8,7 +8,7 @@ PEPE (Pipeline for Easy Protein Embedding) is a CLI + Python library that extrac
 
 ## Source layout
 
-The real package lives in `src/pepe/`. The repo root also contains untracked `pepe-cli/` and `pepe-cli-1/` directories that are stray full copies of the project — **ignore them; do all work under `src/`.**
+The real package lives in `src/pepe/`.
 
 ## Commands
 
@@ -31,8 +31,6 @@ python -m pytest src/tests/
 python -m pytest src/tests/test_api_unittest.py            # single file
 python -m pytest src/tests/test_api_unittest.py::TestPepeAPI::test_embed_to_disk   # single test
 ```
-
-Note: `src/tests/test_run.py` and `test_run.sh` are stale (they use removed args like `--batch_writing` and an old constructor signature); don't treat them as the test entry point.
 
 ## Version / release flow
 

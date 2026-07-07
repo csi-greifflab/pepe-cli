@@ -188,6 +188,11 @@ def parse_arguments():
         help="Precision of the output data. Inference during embedding is not affected. Default is 'float32'.",
     )
     parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose output including GPU/IO profiling stats. Default is False.",
+    )
+    parser.add_argument(
         "--device",
         type=str.lower,
         default="cuda",
