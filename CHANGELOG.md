@@ -17,6 +17,8 @@ truth that drives publishing).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-07
+
 ### Added
 - Broader model compatibility: BERT-like and other unrecognized HuggingFace
   architectures now fall back to the generic `AutoModel`-based embedder instead
