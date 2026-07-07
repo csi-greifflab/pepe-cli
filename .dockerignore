@@ -30,3 +30,4 @@ src/tests/test_files/test_output
 .env
 plan.md
 ROADMAP.md
+src/tests
