@@ -279,9 +279,30 @@ class T5Embedder(HuggingfaceEmbedder):
             AutoModelForMaskedLM,
         ) = _import_transformers()
 
-        tokenizer = T5TokenizerFast.from_pretrained(
-            model_link, use_fast=True, trust_remote_code=self.trust_remote_code
-        )
+        try:
+            tokenizer = T5TokenizerFast.from_pretrained(
+                model_link, trust_remote_code=self.trust_remote_code
+            )
+        except Exception as fast_error:
+            # Some ProtT5 checkpoints (e.g. Rostlab/prot_t5_xl_half_uniref50-enc)
+            # ship a SentencePiece model that cannot be converted to a fast
+            # tokenizer ("Unigram ... trained with a different algorithm"). Fall
+            # back to the slow T5Tokenizer so the production ProtT5 path keeps
+            # working, while fast-only Hub checkpoints still use T5TokenizerFast.
+            logger.info(
+                "T5TokenizerFast unavailable for %s (%s); falling back to the "
+                "slow T5Tokenizer.",
+                model_link,
+                fast_error,
+            )
+            import importlib
+
+            _t5_slow = importlib.import_module(
+                "transformers.models.t5.tokenization_t5"
+            )
+            tokenizer = _t5_slow.T5Tokenizer.from_pretrained(
+                model_link, legacy=True, trust_remote_code=self.trust_remote_code
+            )
         model = T5EncoderModel.from_pretrained(
             model_link, trust_remote_code=self.trust_remote_code
         ).to(device)

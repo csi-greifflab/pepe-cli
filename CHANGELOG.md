@@ -108,6 +108,12 @@ truth that drives publishing).
 - mypy CI failure for `T5TokenizerFast` lazy import in `huggingface_embedder.py`
   (transformers stubs omit the top-level re-export; import via submodule with
   transformers 5.x fallback).
+- `T5Embedder` failed to load production ProtT5 checkpoints
+  (`Rostlab/prot_t5_xl_half_uniref50-enc`) after the switch to `T5TokenizerFast`
+  — their SentencePiece model cannot be converted to a fast tokenizer
+  (`Unigram ... trained with a different algorithm`). Tokenizer loading now falls
+  back to the slow `T5Tokenizer` when the fast conversion fails, so ProtT5 works
+  again while fast-only Hub checkpoints keep using `T5TokenizerFast`.
 
 ## [1.3.0] - 2026-07-07
 
