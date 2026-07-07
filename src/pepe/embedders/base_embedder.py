@@ -1051,9 +1051,9 @@ class BaseEmbedder:
         label_to_idx = {label: i for i, label in enumerate(self.sequence_labels)}
         
         # For each output type, we need to rebuild the data
-        rebuild_logits = self.return_logits and hasattr(self, "logits")
-        rebuild_per_token = self.return_embeddings and hasattr(self, "per_token")
-        rebuild_mean_pooled = self.return_embeddings and hasattr(self, "mean_pooled")
+        rebuild_logits = "logits" in self.output_types
+        rebuild_per_token = "per_token" in self.output_types
+        rebuild_mean_pooled = "mean_pooled" in self.output_types
 
         output_type_map = []
         if rebuild_logits:
