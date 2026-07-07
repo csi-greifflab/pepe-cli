@@ -2,7 +2,9 @@ import logging
 import sys
 
 try:
-    from pepe.api import embed  # Exported to top-level; requires torch at runtime
+    from pepe.api import (
+        embed,  # noqa: F401  (re-exported to top level; needs torch at runtime)
+    )
 except ImportError:
     pass
 

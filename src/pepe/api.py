@@ -1,13 +1,13 @@
+import logging
 import os
 import tempfile
-import logging
 from types import SimpleNamespace
-from typing import Dict, List, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Union
 
 from pepe.model_selecter import select_model
-import pepe.utils
 
 logger = logging.getLogger("pepe.api")
+
 
 def embed(
     model_name: str,
@@ -23,7 +23,7 @@ def embed(
     discard_padding: bool = False,
     max_input_length: str = "max_length",
     experiment_name: Optional[str] = None,
-    **kwargs
+    **kwargs,
 ) -> Dict[str, Any]:
     """
     High-level API for generating protein embeddings.
@@ -52,8 +52,10 @@ def embed(
     if sequences is not None:
         if isinstance(sequences, list):
             sequences = {f"seq_{i}": seq for i, seq in enumerate(sequences)}
-            
-        temp_fasta = tempfile.NamedTemporaryFile(mode='w', suffix='.fasta', delete=False)
+
+        temp_fasta = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".fasta", delete=False
+        )
         for label, seq in sequences.items():
             temp_fasta.write(f">{label}\n{seq}\n")
         temp_fasta.close()
@@ -65,11 +67,13 @@ def embed(
     return_results = False
     if output_path is None:
         if streaming_output:
-            logger.warning("No output_path provided. Disabling streaming_output and returning in-memory results.")
+            logger.warning(
+                "No output_path provided. Disabling streaming_output and returning in-memory results."
+            )
         output_path = tempfile.mkdtemp()
         streaming_output = False
         return_results = True
-    
+
     # Create args object
     args_dict = {
         "model_name": model_name,
@@ -97,26 +101,26 @@ def embed(
         "flush_batches_after": kwargs.get("flush_batches_after", 128),
         "verbose": kwargs.get("verbose", False),
     }
-    
+
     args = SimpleNamespace(**args_dict)
-    
+
     selected_model_class = select_model(
         model_name, trust_remote_code=args.trust_remote_code
     )
     embedder = selected_model_class(args)
     embedder.run()
-    
+
     results = {"output_path": output_path}
-    
+
     if return_results:
         # Pick up in-memory results before they are lost
         for output_type in extract_embeddings:
             obj = getattr(embedder, output_type, None)
             if obj and "output_data" in obj:
                 results[output_type] = obj["output_data"]
-    
+
     # Cleanup temp file
     if temp_fasta:
         os.unlink(temp_fasta.name)
-        
+
     return results

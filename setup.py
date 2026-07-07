@@ -1,10 +1,19 @@
-from setuptools import setup, find_packages
 import os
 import sys
 
+from setuptools import find_packages, setup
+
 # Add src to the Python path to import metadata
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-from pepe import __version__, __package_name__, __author__, __author_email__, __description__, __homepage__, __module_name__
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+from pepe import (
+    __author__,
+    __author_email__,
+    __description__,
+    __homepage__,
+    __module_name__,
+    __package_name__,
+    __version__,
+)
 
 
 # Read the README file for long description

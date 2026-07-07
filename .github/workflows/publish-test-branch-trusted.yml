@@ -14,20 +14,20 @@ jobs:
       contents: read
     outputs:
       test_version: ${{ steps.version_step.outputs.test_version }}
-    
+
     steps:
     - uses: actions/checkout@v5
-    
+
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    
+
     - name: Install build dependencies
       run: |
         python3 -m pip install --upgrade pip
         pip install build
-    
+
     - name: Update version for test branch
       id: version_step
       run: |
@@ -41,53 +41,53 @@ jobs:
         # then appending .dev{timestamp} (TestPyPI rejects re-uploading the same version).
         BASE_VERSION=$(echo "$CURRENT_VERSION" | sed -E 's/(-dev|\.dev[0-9]*)$//')
         TEST_VERSION="${BASE_VERSION}.dev${TIMESTAMP}"
-        
+
         # Output version for other jobs
         echo "test_version=$TEST_VERSION" >> $GITHUB_OUTPUT
-        
+
         # Update version in __init__.py
         sed -i "s/__version__ = \"$CURRENT_VERSION\"/__version__ = \"$TEST_VERSION\"/" src/pepe/__init__.py
         echo "Updated version from $CURRENT_VERSION to $TEST_VERSION"
         echo "Package name: $PACKAGE_NAME"
         echo "Module name: $MODULE_NAME"
         grep "__version__" src/pepe/__init__.py
-    
+
     - name: Build package
       run: python3 -m build
-    
+
     - name: Publish to TestPyPI (Trusted Publishing)
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
         repository-url: https://test.pypi.org/legacy/
         verbose: true
-    
+
     - name: Output installation command
       run: |
         PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
         echo "Package published to TestPyPI!"
         echo "To install the test version, run:"
         echo "pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple \"$PACKAGE_NAME\""
-    
+
     - name: Wait for package availability
       run: |
         echo "Waiting for package to be available on TestPyPI..."
         sleep 30
-    
+
     - name: Test installation and functionality
       run: |
         PACKAGE_NAME=$(grep -m1 '__package_name__ = ' src/pepe/__init__.py | sed 's/__package_name__ = "\(.*\)"/\1/')
         MODULE_NAME=$(grep -m1 '__module_name__ = ' src/pepe/__init__.py | sed 's/__module_name__ = "\(.*\)"/\1/')
-        
+
         # Create a fresh virtual environment for testing
         python3 -m venv test_env
         source test_env/bin/activate
-        
+
         # Install the package from TestPyPI
         pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple "$PACKAGE_NAME"
-        
+
         # Verify installation
         pip list | grep -i pepe
-        
+
         # Test basic import
         python3 -c "import $MODULE_NAME; print('Package imported successfully')"
 
@@ -107,7 +107,7 @@ jobs:
     needs: build-and-publish-test
     steps:
       - uses: actions/checkout@v5
-      
+
       - name: Set up Conda
         uses: conda-incubator/setup-miniconda@v4
         with:

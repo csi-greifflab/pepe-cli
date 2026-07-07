@@ -107,7 +107,10 @@ class TestGenericLengthSafety(unittest.TestCase):
         with self.assertLogs("pepe.embedders.base_embedder", level="WARNING") as logs:
             self._build_embedder(split_long_sequences=False)
         self.assertTrue(
-            any("exceed the model's maximum allowed length" in msg for msg in logs.output)
+            any(
+                "exceed the model's maximum allowed length" in msg
+                for msg in logs.output
+            )
         )
 
 

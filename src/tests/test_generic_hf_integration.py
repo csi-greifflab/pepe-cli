@@ -26,8 +26,9 @@ class TestGenericHFIntegration(unittest.TestCase):
     MODEL = "hf-internal-testing/tiny-random-BertModel"
 
     def test_tiny_bert_mean_pooled_end_to_end(self):
-        import pepe
         from transformers import AutoConfig
+
+        import pepe
 
         config = AutoConfig.from_pretrained(self.MODEL)
         expected_hidden = config.hidden_size

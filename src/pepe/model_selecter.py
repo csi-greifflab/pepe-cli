@@ -1,9 +1,9 @@
+import os
+from typing import Tuple, Type
+
 from pepe.embedders.base_embedder import BaseEmbedder
 from pepe.embedders.custom_embedder import CustomEmbedder
 from pepe.model_errors import translate_hf_config_error
-
-import os
-from typing import Any, Tuple, Type
 
 
 def _get_esm_embedder() -> Type[BaseEmbedder]:
@@ -29,7 +29,7 @@ def _get_esmc_embedder() -> Type[BaseEmbedder]:
 
 def _get_huggingface_embedders() -> Tuple[Type[BaseEmbedder], Type[BaseEmbedder]]:
     """Lazy import of HuggingFace embedders to avoid loading heavy dependencies."""
-    from pepe.embedders.huggingface_embedder import T5Embedder, Antiberta2Embedder
+    from pepe.embedders.huggingface_embedder import Antiberta2Embedder, T5Embedder
 
     return T5Embedder, Antiberta2Embedder
 
@@ -97,9 +97,7 @@ def _select_hf_model(
             model_name, trust_remote_code=trust_remote_code
         )
     except Exception as e:
-        translate_hf_config_error(
-            model_name, e, trust_remote_code=trust_remote_code
-        )
+        translate_hf_config_error(model_name, e, trust_remote_code=trust_remote_code)
 
     model_type = (getattr(config, "model_type", "") or "").lower()
 
@@ -153,9 +151,9 @@ def _format_max_length(config, tokenizer):
 
 def report_model(model_name, trust_remote_code=False):
     """Load config + tokenizer only and print a compatibility summary."""
-    import pepe.utils
-
     from transformers import AutoConfig, AutoTokenizer
+
+    import pepe.utils
 
     try:
         config = AutoConfig.from_pretrained(
@@ -165,9 +163,7 @@ def report_model(model_name, trust_remote_code=False):
             model_name, trust_remote_code=trust_remote_code
         )
     except Exception as e:
-        translate_hf_config_error(
-            model_name, e, trust_remote_code=trust_remote_code
-        )
+        translate_hf_config_error(model_name, e, trust_remote_code=trust_remote_code)
 
     embedder_cls = select_model(model_name, trust_remote_code=trust_remote_code)
     embedder_name = embedder_cls.__name__
