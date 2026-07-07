@@ -1,7 +1,8 @@
 from pepe.embedders.custom_embedder import CustomEmbedder
-from pepe.model_errors import translate_hf_config_error
+from pepe.model_errors import METL3DNotSupportedError, translate_hf_config_error
 
 import os
+import re
 
 
 def _get_esm_embedder():
@@ -39,6 +40,29 @@ def _get_generic_hf_embedder():
     return GenericHuggingFaceEmbedder
 
 
+def _get_metl_embedder():
+    """Lazy import of METL embedder (metl-pretrained backend)."""
+    from pepe.embedders.metl_embedder import METLEmbedder
+
+    return METLEmbedder
+
+
+def _is_metl_model(model_name):
+    if re.match(r"^metl[-_]", model_name, re.I):
+        return True
+    if model_name.lower() in ("gitter-lab/metl",):
+        return True
+    return False
+
+
+def _validate_metl_model_name(model_name):
+    if re.search(r"[-_]3d(?:[-_]|$)", model_name, re.I):
+        raise METL3DNotSupportedError(
+            "METL 3D models (requiring PDB structures) are not supported by PEPE. "
+            "Use a 1D model identifier (e.g. metl-g-20m-1d)."
+        )
+
+
 def select_model(model_name, trust_remote_code=False):
     # 1. Local checkpoints / directories take precedence over any name heuristic,
     #    so a local file or folder is never mistaken for a HuggingFace repo id or a
@@ -53,6 +77,10 @@ def select_model(model_name, trust_remote_code=False):
         )
     ):
         return CustomEmbedder
+
+    if _is_metl_model(model_name):
+        _validate_metl_model_name(model_name)
+        return _get_metl_embedder()
 
     # 2. Anything shaped like a HuggingFace repo id (username/model-name) is
     #    dispatched by inspecting its config, not its name. This is the primary

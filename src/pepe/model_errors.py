@@ -29,6 +29,14 @@ class ESMCForkRequiredError(ModelSelectionError):
     """ESMC models require Biohub's transformers fork."""
 
 
+class METL3DNotSupportedError(ModelSelectionError):
+    """METL 3D models require PDB structures and are not supported by PEPE."""
+
+
+class METLPackageRequiredError(ModelSelectionError):
+    """METL models require the metl-pretrained package."""
+
+
 def _import_hf_hub_errors():
     """Lazy import of huggingface_hub exception types (version-tolerant)."""
     try:

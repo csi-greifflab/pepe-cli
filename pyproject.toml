@@ -36,6 +36,10 @@ dependencies = [
     "rjieba",
 ]
 
+[project.optional-dependencies]
+metl = ["metl-pretrained @ git+https://github.com/gitter-lab/metl-pretrained.git"]
+esm = ["fair-esm"]
+
 [project.urls]
 Homepage = "https://github.com/csi-greifflab/pepe-cli"
 "Bug Reports" = "https://github.com/csi-greifflab/pepe-cli/issues"

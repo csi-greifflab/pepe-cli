@@ -49,6 +49,10 @@ setup(
         "alive_progress",
         "rjieba",
     ],
+    extras_require={
+        "metl": ["metl-pretrained @ git+https://github.com/gitter-lab/metl-pretrained.git"],
+        "esm": ["fair-esm"],
+    },
     entry_points={
         "console_scripts": [
             f"pepe = {__module_name__}.__main__:main",

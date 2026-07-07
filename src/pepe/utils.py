@@ -342,6 +342,81 @@ class ESMDataset(SequenceDictDataset):
         else:
             return labels, seqs, toks, None, None
 
+
+class METLDataset(SequenceDictDataset):
+    def __init__(
+        self,
+        sequences,
+        substring_dict,
+        context,
+        data_encoder,
+        max_length,
+    ):
+        super().__init__(sequences, substring_dict, context)
+        self.data_encoder = data_encoder
+        self.encoded_data = self._encode_sequences(self.data, max_length)
+        self.pad_token_id = 0
+        if self.substring_dict:
+            logger.info("Tokenizing substrings...")
+            self.encoded_substring_data = self._encode_sequences(
+                self.filtered_substring_data,
+                "max_length",
+            )
+            logger.info("Matching substrings to full sequences...")
+            self.substring_masks = self._get_substring_masks()
+
+    def _encode_sequences(self, data, max_length):
+        labels, strs = zip(*data)
+        encoded = []
+        with alive_bar(len(strs), title="Tokenizing sequences...") as bar:
+            for s in strs:
+                seq_encoded = self.data_encoder.encode_sequences([s])[0]
+                encoded.append(seq_encoded)
+                bar()
+
+        max_encoded_length = max(len(seq_encoded) for seq_encoded in encoded)
+        if max_length == "max_length":
+            max_length = max_encoded_length
+        else:
+            max_length = int(max_length)
+            if max_length < max_encoded_length:
+                logger.warning(
+                    f"max_length {max_length} is less than the length of the longest sequence: {max_encoded_length}. Setting max_length to {max_encoded_length}."
+                )
+                max_length = max_encoded_length
+        tokens = torch.empty((len(encoded), max_length), dtype=torch.int64)
+        tokens.fill_(0)
+        for i, seq_encoded in enumerate(encoded):
+            seq = torch.tensor(seq_encoded, dtype=torch.int64)
+            tokens[i, : len(seq_encoded)] = seq
+        return list(zip(labels, strs, list(tokens)))
+
+    def get_max_encoded_length(self):
+        return max(len(toks) for _, _, toks in self.encoded_data)
+
+    def safe_collate(self, batch):
+        if self.substring_dict:
+            labels, seqs, toks, _, substring_masks = zip(*batch)
+            return (
+                list(labels),
+                list(seqs),
+                torch.stack(toks),
+                None,
+                torch.stack(substring_masks),
+            )
+        else:
+            labels, seqs, toks, _, _ = zip(*batch)
+            return list(labels), list(seqs), torch.stack(toks), None, None
+
+    def __getitem__(self, idx):
+        labels, seqs, toks = self.encoded_data[idx]
+        if self.substring_dict:
+            substring_masks = self.substring_masks[idx]
+            return labels, seqs, toks, None, substring_masks
+        else:
+            return labels, seqs, toks, None, None
+
+
 class CustomDataset(SequenceDictDataset):
     """
     Dataset class for custom embedder.
