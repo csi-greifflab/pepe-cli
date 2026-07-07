@@ -57,7 +57,9 @@ setup(
         "rjieba",
     ],
     extras_require={
-        "metl": ["metl-pretrained @ git+https://github.com/gitter-lab/metl-pretrained.git"],
+        "metl": [
+            "metl-pretrained @ git+https://github.com/gitter-lab/metl-pretrained.git"
+        ],
         "esm": ["fair-esm"],
     },
     entry_points={

@@ -6,12 +6,12 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.abspath("src"))
 
-from pepe.model_selecter import select_model
 from pepe.model_errors import (
     METL3DNotSupportedError,
     METLPackageRequiredError,
     ModelSelectionError,
 )
+from pepe.model_selecter import select_model
 
 
 class TestMETLDispatch(unittest.TestCase):
@@ -20,7 +20,9 @@ class TestMETLDispatch(unittest.TestCase):
     def test_select_metl_1d_returns_metl_embedder(self):
         with patch(
             "transformers.AutoConfig.from_pretrained",
-            side_effect=AssertionError("AutoConfig should not be called for METL idents"),
+            side_effect=AssertionError(
+                "AutoConfig should not be called for METL idents"
+            ),
         ):
             embedder_cls = select_model("metl-g-20m-1d")
 

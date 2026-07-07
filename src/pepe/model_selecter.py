@@ -1,11 +1,11 @@
 import os
+import re
 from typing import Tuple, Type
 
 from pepe.embedders.base_embedder import BaseEmbedder
 from pepe.embedders.custom_embedder import CustomEmbedder
 from pepe.model_errors import METL3DNotSupportedError, translate_hf_config_error
 
-import re
 
 def _get_esm_embedder() -> Type[BaseEmbedder]:
     """Lazy import of ESM embedder to avoid loading heavy dependencies."""
