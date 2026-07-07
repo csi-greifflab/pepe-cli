@@ -57,6 +57,7 @@ class BaseEmbedder:
         self.split_long_sequences = getattr(args, "split_long_sequences", False)
         self.split_overlap = getattr(args, "split_overlap", 0)
         self.force_split_length = getattr(args, "force_split_length", None)
+        self.trust_remote_code = getattr(args, "trust_remote_code", False)
         self.chunks_mapping = {}  # Map original label to list of chunk labels
         self.chunk_payload_lengths = {} # Map chunk label to its payload length
         self.original_sequences = {} # Store original sequence for reference
@@ -843,14 +844,14 @@ class BaseEmbedder:
         if max_allowed is None:
             return
 
-        # Check if splitting is needed (either by explicit max_input_length or by reviewing sequences)
-        needs_splitting = False
-        if isinstance(self.max_input_length, int) and self.max_input_length > max_allowed:
-            needs_splitting = True
-        elif self.split_long_sequences:
-            # Check if any individual sequence exceeds the limit
-            if any(len(s) > (max_allowed - 2) for s in self.sequences.values()): # -2 for cls/eos
-                needs_splitting = True
+        # Check if any sequence exceeds the model limit (-2 for cls/eos special tokens)
+        sequences_too_long = any(
+            len(s) > (max_allowed - 2) for s in self.sequences.values()
+        )
+        needs_splitting = (
+            isinstance(self.max_input_length, int)
+            and self.max_input_length > max_allowed
+        ) or sequences_too_long
 
         if needs_splitting:
             if self.split_long_sequences:
@@ -863,27 +864,61 @@ class BaseEmbedder:
                     f"Warning: Sequences exceed the model's maximum allowed length ({max_allowed})."
                 )
 
+    _UNKNOWN_MAX_LENGTH_THRESHOLD = 1e9
+
+    @classmethod
+    def _is_unknown_max_length(cls, value):
+        """Treat HuggingFace sentinel model_max_length (~1e30) as unknown."""
+        try:
+            return float(value) >= cls._UNKNOWN_MAX_LENGTH_THRESHOLD
+        except (TypeError, ValueError):
+            return False
+
     def _get_model_max_allowed(self):
         """Estimate the maximum allowed sequence length for the model."""
         if hasattr(self, "force_split_length") and self.force_split_length is not None:
             return self.force_split_length
 
         max_allowed = None
+        max_source = None
         if hasattr(self, "model"):
-            if hasattr(self.model, "config") and hasattr(self.model.config, "max_position_embeddings"):
+            if hasattr(self.model, "config") and hasattr(
+                self.model.config, "max_position_embeddings"
+            ):
                 max_allowed = self.model.config.max_position_embeddings
-            elif hasattr(self, "tokenizer") and hasattr(self.tokenizer, "model_max_length"):
+                max_source = "config.max_position_embeddings"
+            elif hasattr(self, "tokenizer") and hasattr(
+                self.tokenizer, "model_max_length"
+            ):
                 max_allowed = self.tokenizer.model_max_length
-            
+                max_source = "tokenizer.model_max_length"
+
             if max_allowed is None and hasattr(self.model, "max_positions"):
                 max_allowed = getattr(self.model, "max_positions", None)
                 if callable(max_allowed):
                     max_allowed = max_allowed()
-                elif hasattr(self.model, "max_positions") and isinstance(self.model.max_positions, int):
+                elif hasattr(self.model, "max_positions") and isinstance(
+                    self.model.max_positions, int
+                ):
                     max_allowed = self.model.max_positions
-                    
-            if max_allowed is None and hasattr(self.model, "config") and hasattr(self.model.config, "n_positions"):
+                max_source = "model.max_positions"
+
+            if (
+                max_allowed is None
+                and hasattr(self.model, "config")
+                and hasattr(self.model.config, "n_positions")
+            ):
                 max_allowed = self.model.config.n_positions
+                max_source = "config.n_positions"
+
+        if max_allowed is not None and self._is_unknown_max_length(max_allowed):
+            logger.info(
+                "Model maximum sequence length is unknown (%s=%s); "
+                "length limits will not be enforced automatically.",
+                max_source or "max_length",
+                max_allowed,
+            )
+            return None
         return max_allowed
 
     def _handle_sequence_splitting(self, max_allowed):

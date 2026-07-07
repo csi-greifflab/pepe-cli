@@ -481,6 +481,30 @@ def check_input_tokens(
     logger.info("No invalid tokens in input sequences.")
 
 
+_CHARACTER_TOKENIZER_PROBE = "ACDEFGHIKLMNPQRSTVWY"
+
+
+def is_character_tokenizer(tokenizer) -> bool:
+    """Return True when one amino acid maps to one token (no subword merging)."""
+    encoded = tokenizer.encode(
+        _CHARACTER_TOKENIZER_PROBE, add_special_tokens=False
+    )
+    return len(encoded) == len(_CHARACTER_TOKENIZER_PROBE)
+
+
+def warn_if_non_character_tokenizer(tokenizer, model_name=None):
+    """Log a prominent warning when the tokenizer is not character-level."""
+    if is_character_tokenizer(tokenizer):
+        return
+    name = model_name or "this model"
+    logger.warning(
+        "Warning: %s uses a subword tokenizer (not one amino acid per token). "
+        "per_token and substring_pooled outputs will NOT align with residues; "
+        "use mean_pooled for reliable sequence-level embeddings.",
+        name,
+    )
+
+
 def fasta_to_dict(fasta_path):
     """Convert FASTA file into a dictionary: {id: raw_sequence}."""
     seq_dict = {}
