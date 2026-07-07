@@ -34,24 +34,25 @@ def resolve_metl_ident(model_name):
 logger = logging.getLogger("pepe.embedders.metl_embedder")
 
 
+def _validate_supported_output_types(output_types):
+    unsupported = [
+        output_type
+        for output_type in output_types
+        if output_type
+        in ("logits", "attention_head", "attention_layer", "attention_model")
+    ]
+    if unsupported:
+        unsupported_sorted = ", ".join(sorted(set(unsupported)))
+        raise ModelSelectionError(
+            "METL models do not support logits or attention outputs. "
+            f"Remove unsupported extract_embeddings values: {unsupported_sorted}."
+        )
+
+
 class METLEmbedder(BaseEmbedder):
     def __init__(self, args):
         super().__init__(args)
-        if self.return_logits:
-            logger.warning(
-                "Warning: Logits are not supported for METL models. Setting to False."
-            )
-            self.return_logits = False
-            if "logits" in self.output_types:
-                self.output_types.remove("logits")
-        if self.return_contacts:
-            logger.warning(
-                "Warning: Attention matrices are not supported for METL models. Setting to False."
-            )
-            self.return_contacts = False
-            for output_type in ("attention_head", "attention_layer", "attention_model"):
-                if output_type in self.output_types:
-                    self.output_types.remove(output_type)
+        _validate_supported_output_types(self.output_types)
 
         self.sequences = pepe.utils.fasta_to_dict(args.fasta_path)
         self.num_sequences = len(self.sequences)
@@ -70,7 +71,7 @@ class METLEmbedder(BaseEmbedder):
             self.model_name,
             split_long_sequences=self.split_long_sequences,
         )
-        self.special_tokens = torch.tensor([0], device=self.device, dtype=torch.int8)
+        self.special_tokens = torch.tensor([0], device=self.device, dtype=torch.int64)
         self.layers = self._load_layers(self.layers)
         self._repr_outputs = {}
         self._hook_handles = []
@@ -258,3 +259,91 @@ class METLEmbedder(BaseEmbedder):
         if hasattr(self, "num_sequences"):
             self.num_sequences = len(self.sequences)
         self.max_input_length = chunk_size
+
+    def _reconstruct_chunks(self):
+        """Reconstruct chunked METL outputs (no BOS/EOS token offsets)."""
+        if not self.chunks_mapping or self.streaming_output:
+            return
+
+        assert self.layers is not None
+        logger.info("Reconstructing original sequences from chunks...")
+
+        label_to_idx = {label: i for i, label in enumerate(self.sequence_labels)}
+        per_token_requested = "per_token" in self.output_types
+        rebuild_mean_pooled = "mean_pooled" in self.output_types
+        build_per_token = per_token_requested or rebuild_mean_pooled
+
+        if rebuild_mean_pooled and not (per_token_requested or self._retain_per_token):
+            raise RuntimeError(
+                "Cannot reconstruct mean_pooled for split sequences without "
+                "per_token representations (internal per-token retention was "
+                "not enabled)."
+            )
+
+        output_type_map = []
+        if build_per_token:
+            output_type_map.append(("per_token", self.per_token))
+        if rebuild_mean_pooled:
+            output_type_map.append(("mean_pooled", self.mean_pooled))
+
+        new_sequence_labels = []
+        labels_processed = set()
+        reconstructed_data = {
+            output_type: {layer: [] for layer in self.layers}
+            for output_type, _ in output_type_map
+        }
+
+        for label in self.sequence_labels:
+            orig_label = label
+            is_chunk = False
+            for parent, chunks in self.chunks_mapping.items():
+                if label in chunks:
+                    orig_label = parent
+                    is_chunk = True
+                    break
+
+            if orig_label in labels_processed:
+                continue
+
+            labels_processed.add(orig_label)
+            new_sequence_labels.append(orig_label)
+
+            if not is_chunk:
+                idx = label_to_idx[label]
+                for output_type, obj in output_type_map:
+                    for layer in self.layers:
+                        reconstructed_data[output_type][layer].append(
+                            obj["output_data"][layer][idx]
+                        )
+                continue
+
+            if build_per_token:
+                for layer in self.layers:
+                    parts = []
+                    for i, chunk_label in enumerate(self.chunks_mapping[orig_label]):
+                        idx = label_to_idx[chunk_label]
+                        full_tensor = self.per_token["output_data"][layer][idx]
+                        payload_len = self.chunk_payload_lengths[chunk_label]
+                        start_idx = self.split_overlap if i > 0 else 0
+                        parts.append(full_tensor[start_idx:payload_len])
+                    reconstructed = torch.cat(parts, dim=0)
+                    reconstructed_data["per_token"][layer].append(reconstructed)
+
+            if rebuild_mean_pooled:
+                for layer in self.layers:
+                    reconstructed_mean = reconstructed_data["per_token"][layer][
+                        -1
+                    ].mean(0)
+                    reconstructed_data["mean_pooled"][layer].append(reconstructed_mean)
+
+        self.sequence_labels = new_sequence_labels
+        self.num_sequences = len(self.sequence_labels)
+        for output_type, obj in output_type_map:
+            if output_type == "per_token" and not per_token_requested:
+                continue
+            for layer in self.layers:
+                obj["output_data"][layer] = reconstructed_data[output_type][layer]
+
+        logger.info(
+            f"Reconstruction complete. Final sequence count: {self.num_sequences}"
+        )

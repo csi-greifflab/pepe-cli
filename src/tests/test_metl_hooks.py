@@ -137,5 +137,42 @@ class TestMETLRegisterReprHooks(unittest.TestCase):
         self.assertTrue(torch.all(emb._repr_outputs[3] == 60.0))
 
 
+class TestMETLReconstruction(unittest.TestCase):
+    def test_reconstruct_chunks_without_special_token_offset(self):
+        emb = METLEmbedder.__new__(METLEmbedder)
+        emb.chunks_mapping = {"seq": ["seq_chunk_0", "seq_chunk_1"]}
+        emb.streaming_output = False
+        emb.layers = [1]
+        emb.sequence_labels = ["seq_chunk_0", "seq_chunk_1"]
+        emb.output_types = ["per_token", "mean_pooled"]
+        emb._retain_per_token = False
+        emb.split_overlap = 2
+        emb.chunk_payload_lengths = {"seq_chunk_0": 5, "seq_chunk_1": 5}
+        emb.per_token = {
+            "output_data": {
+                1: [
+                    torch.tensor([[0.0], [1.0], [2.0], [3.0], [4.0]]),
+                    torch.tensor([[3.0], [4.0], [5.0], [6.0], [7.0]]),
+                ]
+            }
+        }
+        emb.mean_pooled = {
+            "output_data": {1: [torch.tensor([0.0]), torch.tensor([0.0])]}
+        }
+
+        emb._reconstruct_chunks()
+
+        self.assertEqual(emb.sequence_labels, ["seq"])
+        self.assertTrue(
+            torch.equal(
+                emb.per_token["output_data"][1][0],
+                torch.tensor([[0.0], [1.0], [2.0], [3.0], [4.0], [5.0], [6.0], [7.0]]),
+            )
+        )
+        self.assertTrue(
+            torch.equal(emb.mean_pooled["output_data"][1][0], torch.tensor([3.5]))
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

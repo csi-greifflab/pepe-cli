@@ -56,7 +56,7 @@ def _get_metl_embedder():
 def _is_metl_model(model_name):
     if re.match(r"^metl[-_]", model_name, re.I):
         return True
-    if model_name.lower() in ("gitter-lab/metl",):
+    if model_name.lower() in ("gitter-lab/metl", "gitter-lab/metl-pretrained"):
         return True
     return False
 

@@ -48,6 +48,16 @@ class TestMETLDispatch(unittest.TestCase):
         self.assertIn("metl-g-20m-1d", msg)
         mock_config.assert_not_called()
 
+    def test_select_gitter_lab_metl_pretrained_rejected_early(self):
+        with patch("transformers.AutoConfig.from_pretrained") as mock_config:
+            with self.assertRaises(ModelSelectionError) as ctx:
+                select_model("gitter-lab/metl-pretrained")
+
+        msg = str(ctx.exception).lower()
+        self.assertIn("gitter-lab/metl", msg)
+        self.assertIn("metl-g-20m-1d", msg)
+        mock_config.assert_not_called()
+
     def test_import_metl_missing_package_has_install_hint(self):
         real_import = builtins.__import__
 
@@ -67,7 +77,10 @@ class TestMETLDispatch(unittest.TestCase):
         self.assertIn("pip install", msg)
 
     def test_gitter_lab_metl_init_requires_specific_ident(self):
-        from pepe.embedders.metl_embedder import resolve_metl_ident
+        from pepe.embedders.metl_embedder import (
+            _validate_supported_output_types,
+            resolve_metl_ident,
+        )
 
         with self.assertRaises(ModelSelectionError) as ctx:
             resolve_metl_ident("gitter-lab/METL")
@@ -75,6 +88,12 @@ class TestMETLDispatch(unittest.TestCase):
         msg = str(ctx.exception).lower()
         self.assertIn("gitter-lab/metl", msg)
         self.assertIn("metl-g-20m-1d", msg)
+
+        with self.assertRaises(ModelSelectionError):
+            _validate_supported_output_types(["logits"])
+
+        with self.assertRaises(ModelSelectionError):
+            _validate_supported_output_types(["per_token", "attention_layer"])
 
 
 if __name__ == "__main__":
