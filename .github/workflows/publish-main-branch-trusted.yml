@@ -134,7 +134,7 @@ jobs:
         echo "Package $PACKAGE_NAME version $CURRENT_VERSION is now available on PyPI!"
 
     - name: Upload dist artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: dist-packages
         path: dist/
@@ -279,7 +279,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download dist artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: dist-packages
           path: dist/
