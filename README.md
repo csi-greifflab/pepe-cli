@@ -233,13 +233,17 @@ results = pepe.embed(
 
 - T5: `Rostlab/prot_t5_xl_half_uniref50-enc`, `Rostlab/ProstT5`
 - RoFormer: `alchemab/antiberta2-cssp`, `alchemab/antiberta2`
+- ESMC: `biohub/ESMC-300M`, `biohub/ESMC-600M`, `biohub/ESMC-6B` (requires Biohub's transformers fork; see Installation)
 - Any compatible Hugging Face Hub model (`username/model-name`), including private models with authentication and local Hugging Face directories
+
+**METL models**
+
+- METL 1D: `metl-*-1d` identifiers from `metl-pretrained` (requires `metl-pretrained`; logits and attention outputs are not supported)
 
 **Custom models**
 
 - Load your own PyTorch models with custom tokenizers
 - Generate a template: `python examples/custom_model/create_example_custom_model.py`
-
 ---
 
 ## Arguments
