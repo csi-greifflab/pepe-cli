@@ -65,6 +65,18 @@ cd pepe-cli
 pip install .
 ```
 
+### Optional backends
+
+Some models require additional packages that are not installed by default:
+
+```bash
+# ESMC models (e.g. EvolutionaryScale/esmc-300m-2024-12) — requires Biohub's transformers fork
+pip install git+https://github.com/Biohub/transformers.git@main
+
+# METL models (e.g. metl-g-20m-1d) — requires metl-pretrained
+pip install git+https://github.com/gitter-lab/metl-pretrained.git
+```
+
 ### Docker
 
 A pre-built image with CUDA/GPU support is published on the GitHub Container Registry:
