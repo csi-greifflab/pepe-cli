@@ -9,7 +9,7 @@
 
 PEPE is a **command-line tool and Python library** for high-throughput, multi-modal extraction of representations from protein language models (PLMs). It extracts embeddings and attention matrices from protein sequences in a single parallelized, streaming pass — letting you build embedding datasets that are limited only by the write speed and capacity of your storage, not by available RAM.
 
-PEPE supports ESM-1, ESM-2, ProtT5, ProstT5, and AntiBERTa2 out of the box, along with any compatible model from the Hugging Face Hub and custom local PyTorch models.
+PEPE supports ESM-1, ESM-2, ProtT5, ProstT5, AntiBERTa2, ESMC (requires Biohub's transformers fork), and METL 1D models (requires metl-pretrained), along with any compatible model from the Hugging Face Hub and custom local PyTorch models.
 
 ---
 
