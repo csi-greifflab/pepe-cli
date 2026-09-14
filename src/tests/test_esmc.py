@@ -32,6 +32,7 @@ class TestESMCModelSelection(unittest.TestCase):
 
     def test_select_esmc_inspect_logits_available(self):
         import io
+
         import pepe.model_selecter
 
         mock_config = MagicMock()
@@ -47,8 +48,13 @@ class TestESMCModelSelection(unittest.TestCase):
         mock_tokenizer.model_max_length = 2048
         mock_tokenizer.get_vocab.return_value = {"A": 4, "C": 5}
 
-        with patch("transformers.AutoConfig.from_pretrained", return_value=mock_config), \
-             patch("transformers.AutoTokenizer.from_pretrained", return_value=mock_tokenizer):
+        with (
+            patch("transformers.AutoConfig.from_pretrained", return_value=mock_config),
+            patch(
+                "transformers.AutoTokenizer.from_pretrained",
+                return_value=mock_tokenizer,
+            ),
+        ):
             captured = io.StringIO()
             old_stdout = sys.stdout
             try:
@@ -61,6 +67,7 @@ class TestESMCModelSelection(unittest.TestCase):
 
     def test_esmc_compute_outputs_returns_logits(self):
         import torch
+
         from pepe.embedders.huggingface_embedder import ESMCEmbedder
 
         embedder = object.__new__(ESMCEmbedder)
@@ -92,6 +99,69 @@ class TestESMCModelSelection(unittest.TestCase):
         self.assertEqual(representations[30].shape, (2, 10, 960))
         self.assertIsNone(attention_matrices)
 
+    def test_esmc_preallocation_shape(self):
+        from pepe.embedders.huggingface_embedder import ESMCEmbedder
+
+        embedder = object.__new__(ESMCEmbedder)
+        embedder.layers = [30]
+        embedder.num_sequences = 5
+        embedder.max_input_length = 25
+        embedder.vocab_size = 64
+        embedder.embedding_size = 960
+        embedder.num_heads = 15
+        embedder.flatten = False
+        embedder.output_path = "/tmp"
+
+        embedder._set_output_objects()
+        self.assertEqual(embedder.logits["shape"], (5, 25, 64))
+
+        embedder.flatten = True
+        embedder._set_output_objects()
+        self.assertEqual(embedder.logits["shape"], (5, 25 * 64))
+
+    def test_safe_compute_oom_retry_with_dict_representations_and_logits(self):
+        import torch
+
+        from pepe.embedders.huggingface_embedder import ESMCEmbedder
+
+        embedder = object.__new__(ESMCEmbedder)
+        embedder.model = MagicMock()
+        embedder.layers = [30]
+        embedder.return_embeddings = True
+        embedder.return_contacts = False
+        embedder.return_logits = True
+
+        call_count = 0
+
+        def fake_compute_outputs(
+            model,
+            toks,
+            attention_mask,
+            return_embeddings,
+            return_contacts,
+            return_logits,
+        ):
+            nonlocal call_count
+            call_count += 1
+            B = toks.size(0)
+            if call_count == 1:
+                raise torch.OutOfMemoryError("CUDA OOM")
+            logits = torch.ones((B, toks.size(1), 64))
+            reps = {30: torch.ones((B, toks.size(1), 960))}
+            return logits, reps, None
+
+        embedder._compute_outputs = fake_compute_outputs
+
+        toks = torch.zeros((4, 10), dtype=torch.long)
+        attention_mask = torch.ones((4, 10), dtype=torch.long)
+
+        logits, reps, attn = embedder._safe_compute(toks, attention_mask)
+        self.assertIsNotNone(logits)
+        self.assertEqual(logits.shape, (4, 10, 64))
+        self.assertIn(30, reps)
+        self.assertEqual(reps[30].shape, (4, 10, 960))
+        self.assertIsNone(attn)
+
 
 @unittest.skipUnless(
     os.environ.get("ESMC_TEST") == "1",
@@ -119,24 +189,57 @@ class TestESMCIntegration(unittest.TestCase):
         self.assertEqual(layer_outputs[layer_key][0].shape[0], 960)
 
     def test_esmc_logits(self):
+        import tempfile
+
+        import numpy as np
+
         import pepe
 
         sequences = {
             "seq1": "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAHKLRVDPVNFKLLSHCLLVTLAAHLPAEFTPAVHASLDKFLASVSTVLTSKYR",
         }
-        results = pepe.embed(
+        in_memory = pepe.embed(
             model_name="biohub/ESMC-300M",
             sequences=sequences,
             extract_embeddings=["logits"],
             layers=[[-1]],
             device="cpu",
+            streaming_output=False,
         )
 
-        self.assertIn("logits", results)
-        layer_outputs = results["logits"]
-        layer_key = next(iter(layer_outputs))
-        self.assertEqual(len(layer_outputs[layer_key]), 1)
-        self.assertEqual(layer_outputs[layer_key][0].shape[1], 64)
+        self.assertIn("logits", in_memory)
+        layer_key = next(iter(in_memory["logits"]))
+        in_mem_arr = in_memory["logits"][layer_key][0]
+        self.assertEqual(in_mem_arr.ndim, 2)
+        self.assertEqual(in_mem_arr.shape[1], 64)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pepe.embed(
+                model_name="biohub/ESMC-300M",
+                sequences=sequences,
+                extract_embeddings=["logits"],
+                layers=[[-1]],
+                device="cpu",
+                output_path=tmp_dir,
+                streaming_output=True,
+            )
+            # Find and load the saved memmap file
+            pattern = os.path.join(tmp_dir, "*", "logits", "*.npy")
+            import glob
+
+            files = glob.glob(pattern)
+            self.assertTrue(len(files) > 0, "No streaming logits memmap file found")
+            streamed_arr = np.load(files[0])
+            self.assertEqual(streamed_arr.ndim, 3)
+            self.assertEqual(streamed_arr.shape[-1], 64)
+            # Verify shapes and non-trivial values
+            self.assertEqual(streamed_arr.shape[0], 1)
+            np.testing.assert_allclose(
+                in_mem_arr,
+                streamed_arr[0, : in_mem_arr.shape[0], :],
+                rtol=1e-4,
+                atol=1e-4,
+            )
 
 
 if __name__ == "__main__":

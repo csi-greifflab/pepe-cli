@@ -151,7 +151,9 @@ def test_streaming_matches_in_memory(tmp_path):
         _assert_allclose(reference, streaming, output_type)
         if output_type == "logits":
             assert reference.ndim == 3, f"Expected 3D logits, got {reference.ndim}"
-            assert reference.shape[-1] == 33, f"Expected ESM-2 vocab size 33, got {reference.shape[-1]}"
+            assert reference.shape[-1] == 33, (
+                f"Expected ESM-2 vocab size 33, got {reference.shape[-1]}"
+            )
             assert streaming.shape == reference.shape
 
 

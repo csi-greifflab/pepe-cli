@@ -397,16 +397,40 @@ class BaseEmbedder:
                 if self.return_logits
                 else None
             )
-            representations = (
-                torch.cat([cast(torch.Tensor, o[1]) for o in outs], dim=0)
-                if self.return_embeddings
-                else None
-            )
-            attention_matrices = (
-                torch.cat([cast(torch.Tensor, o[2]) for o in outs], dim=0)
-                if self.return_contacts
-                else None
-            )
+            if self.return_embeddings:
+                if isinstance(outs[0][1], dict):
+                    representations = {
+                        layer: torch.cat([o[1][layer] for o in outs], dim=0)
+                        for layer in outs[0][1]
+                    }
+                else:
+                    representations = torch.cat(
+                        [cast(torch.Tensor, o[1]) for o in outs], dim=0
+                    )
+            else:
+                representations = None
+
+            if self.return_contacts:
+                if isinstance(outs[0][2], dict):
+                    attention_matrices = {
+                        k: torch.cat([o[2][k] for o in outs], dim=0) for k in outs[0][2]
+                    }
+                elif isinstance(outs[0][2], torch.Tensor):
+                    first = outs[0][2]
+                    if first.ndim >= 2 and first.shape[1] == toks_chunks[0].size(0):
+                        # HuggingFace stack shape: (layers, batch, heads, seq, seq)
+                        attention_matrices = torch.cat(
+                            [cast(torch.Tensor, o[2]) for o in outs], dim=1
+                        )
+                    else:
+                        # ESMEmbedder permuted shape: (batch, layers, heads, seq, seq)
+                        attention_matrices = torch.cat(
+                            [cast(torch.Tensor, o[2]) for o in outs], dim=0
+                        )
+                else:
+                    attention_matrices = None
+            else:
+                attention_matrices = None
             return logits, representations, attention_matrices
 
     def _active_output_types(self) -> List[str]:
@@ -678,10 +702,7 @@ class BaseEmbedder:
                     )
                 else:
                     self.logits["output_data"][layer].extend(
-                        [
-                            logits[i][pooling_mask[i]]
-                            for i in range(len(batch_labels))
-                        ]
+                        [logits[i][pooling_mask[i]] for i in range(len(batch_labels))]
                     )
 
     def _extract_mean_pooled(
@@ -924,7 +945,10 @@ class BaseEmbedder:
                             )
                     else:
                         # Handle layer-based outputs (mean_pooled, per_token, substring_pooled, attention_layer, logits)
-                        flatten = self.flatten and output_type in ("per_token", "logits")
+                        flatten = self.flatten and output_type in (
+                            "per_token",
+                            "logits",
+                        )
                         tensor = self._prepare_tensor(output_data[layer], flatten)
                         file_path = self._make_output_filepath(
                             output_type, output_dir, layer

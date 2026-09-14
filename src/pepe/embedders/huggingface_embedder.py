@@ -435,7 +435,9 @@ class ESM2Embedder(HuggingfaceEmbedder):
         num_heads = config.num_attention_heads
         num_layers = config.num_hidden_layers
         embedding_size = config.hidden_size
-        self.vocab_size = getattr(config, "vocab_size", getattr(tokenizer, "vocab_size", 33))
+        self.vocab_size = getattr(
+            config, "vocab_size", getattr(tokenizer, "vocab_size", 33)
+        )
         return model, tokenizer, num_heads, num_layers, embedding_size
 
     def _compute_outputs(
@@ -455,12 +457,9 @@ class ESM2Embedder(HuggingfaceEmbedder):
             output_attentions=return_contacts,
         )
         if return_logits:
-            logits = (
-                outputs.logits.to(
-                    dtype=self._precision_to_dtype(self.precision, "torch")
-                )
-                .cpu()
-            )
+            logits = outputs.logits.to(
+                dtype=self._precision_to_dtype(self.precision, "torch")
+            ).cpu()
             torch.cuda.empty_cache()
         else:
             logits = None
@@ -627,12 +626,9 @@ class ESMCEmbedder(HuggingfaceEmbedder):
             output_attentions=return_contacts,
         )
         if return_logits and hasattr(outputs, "logits"):
-            logits = (
-                outputs.logits.to(
-                    dtype=self._precision_to_dtype(self.precision, "torch")
-                )
-                .cpu()
-            )
+            logits = outputs.logits.to(
+                dtype=self._precision_to_dtype(self.precision, "torch")
+            ).cpu()
             torch.cuda.empty_cache()
         else:
             logits = None
