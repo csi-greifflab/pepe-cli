@@ -91,6 +91,22 @@ class TestESMCEmbeddingModes(unittest.TestCase):
         self.assertEqual(arr.ndim, 2)
         self.assertEqual(arr.shape[0], arr.shape[1])
 
+    def test_logits(self):
+        sequences = {
+            "seq1": "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMFLSFPTTKTYFPHFDLSHGSAQVKGHGKKVADALTNAVAHVDDMPNALSALSDLHAHKLRVDPVNFKLLSHCLLVTLAAHLPAEFTPAVHASLDKFLASVSTVLTSKYR"
+        }
+        results = self._embed(
+            sequences=sequences,
+            extract_embeddings=["logits"],
+        )
+        self.assertIn("logits", results)
+        layer = self.NUM_LAYERS
+        self.assertIn(layer, results["logits"])
+        arr = results["logits"][layer][0]
+        self.assertEqual(arr.ndim, 2)
+        self.assertEqual(arr.shape[1], 64)
+        self.assertGreater(arr.shape[0], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

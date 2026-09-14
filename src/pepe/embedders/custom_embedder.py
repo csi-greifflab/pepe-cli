@@ -178,6 +178,14 @@ class CustomEmbedder(BaseEmbedder):
 
         # Initialize tokenizer
         tokenizer = self._initialize_tokenizer(tokenizer_path, config)
+        if hasattr(model, "vocab_size"):
+            self.vocab_size = int(getattr(model, "vocab_size"))
+        elif "vocab_size" in config:
+            self.vocab_size = int(config["vocab_size"])
+        elif hasattr(tokenizer, "vocab_size"):
+            self.vocab_size = int(getattr(tokenizer, "vocab_size"))
+        else:
+            self.vocab_size = 21
 
         return model, tokenizer, num_heads, num_layers, embedding_size
 
@@ -415,6 +423,7 @@ class CustomModelWrapper(torch.nn.Module):
         self.hidden_size = config.get("hidden_size", 768)
         self.num_layers = config.get("num_layers", 12)
         self.num_heads = config.get("num_attention_heads", 12)
+        self.vocab_size = config.get("vocab_size", 21)
 
         # Load state dict if provided
         if state_dict:
@@ -441,6 +450,7 @@ class CustomModelWrapper(torch.nn.Module):
         hidden_size = self.hidden_size
         num_layers = self.num_layers
         num_heads = self.num_heads
+        vocab_size = self.vocab_size
 
         # Create dummy outputs for demonstration
         # In practice, these would be the actual model outputs
@@ -467,8 +477,8 @@ class CustomModelWrapper(torch.nn.Module):
                 )
                 self.attentions = dummy_attentions if output_attentions else None
                 self.logits = torch.randn(
-                    batch_size, seq_len, 21, device=input_ids.device
-                )  # 21 for amino acids
+                    batch_size, seq_len, vocab_size, device=input_ids.device
+                )
 
         return ModelOutput()
 

@@ -68,7 +68,7 @@ Heavy deps (torch, transformers, esm) are **lazily imported** inside functions/m
 
 ### Output types
 
-`_set_output_objects()` defines one entry per output type — `per_token`, `mean_pooled`, `substring_pooled`, `attention_head`, `attention_layer`, `attention_model`, `logits` — each a dict of `{output_data, method (_extract_*), output_dir, shape}`. `extract_embeddings` picks which run. Adding an output type means adding both the dict entry and the matching `_extract_*` method. Files are saved as `.npy` under `<output_path>/<model_name>/<output_type>/`, plus a `*_idx.csv` mapping row index → sequence id. Note `logits` is only produced by ESM-2 (via `AutoModelForMaskedLM`); the generic HuggingFace path drops it.
+`_set_output_objects()` defines one entry per output type — `per_token`, `mean_pooled`, `substring_pooled`, `attention_head`, `attention_layer`, `attention_model`, `logits` — each a dict of `{output_data, method (_extract_*), output_dir, shape}`. `extract_embeddings` picks which run. Adding an output type means adding both the dict entry and the matching `_extract_*` method. Files are saved as `.npy` under `<output_path>/<model_name>/<output_type>/`, plus a `*_idx.csv` mapping row index → sequence id. Note `logits` is produced by ESM-2 and ESM-C (via `AutoModelForMaskedLM`); the generic HuggingFace path drops it. (Note: ESM-C outputs 64-dimensional unmasked single-pass logits with indices 4–28 supervised; zero-shot variant effect prediction scientifically requires masked marginal scoring).
 
 ### Streaming I/O (default) vs in-memory
 

@@ -38,6 +38,7 @@ class ESMEmbedder(BaseEmbedder):
             self.prepend_bos,
             self.append_eos,
         ) = self._initialize_model(self.model_name)
+        self.vocab_size = len(self.alphabet.all_toks)
         self.valid_tokens = set(self.alphabet.all_toks)
         self._check_max_input_length()
         pepe.utils.check_input_tokens(
@@ -172,9 +173,8 @@ class ESMEmbedder(BaseEmbedder):
             logits = (
                 outputs["logits"]
                 .to(dtype=self._precision_to_dtype(self.precision, "torch"))
-                .permute(2, 0, 1)
                 .cpu()
-            )  # permute to match the shape of the representations
+            )
             torch.cuda.empty_cache()
         else:
             logits = None

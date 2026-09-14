@@ -144,17 +144,40 @@ class BaseEmbedder:
                 f"Unsupported precision: {precision}. Supported values are {half_precision} or {full_precision}."
             )
 
+    def _get_vocab_size(self) -> int:
+        """Retrieve the vocabulary size across supported backends."""
+        if hasattr(self, "vocab_size") and self.vocab_size:
+            return self.vocab_size
+        if hasattr(self, "tokenizer") and hasattr(self.tokenizer, "vocab_size"):
+            return self.tokenizer.vocab_size
+        if hasattr(self, "tokenizer") and hasattr(self.tokenizer, "get_vocab"):
+            return len(self.tokenizer.get_vocab())
+        if hasattr(self, "config") and hasattr(self.config, "vocab_size"):
+            return self.config.vocab_size
+        if hasattr(self, "alphabet") and hasattr(self.alphabet, "all_toks"):
+            return len(self.alphabet.all_toks)
+        return 0
+
     def _set_output_objects(self) -> None:
         """Initialize output objects."""
         assert self.layers is not None
         self.sequence_labels = []
+        self.vocab_size = self._get_vocab_size()
         self.logits = {
             "output_data": {layer: [] for layer in self.layers},
             "method": self._extract_logits,
             "output_dir": os.path.join(self.output_path, "logits"),
             "shape": (
-                self.num_sequences,
-                self.max_input_length,
+                (
+                    self.num_sequences,
+                    self.max_input_length,
+                    self.vocab_size,
+                )
+                if not self.flatten
+                else (
+                    self.num_sequences,
+                    self.max_input_length * self.vocab_size,
+                )
             ),
         }
         self.mean_pooled = {
@@ -374,16 +397,49 @@ class BaseEmbedder:
                 if self.return_logits
                 else None
             )
-            representations = (
-                torch.cat([cast(torch.Tensor, o[1]) for o in outs], dim=0)
-                if self.return_embeddings
-                else None
-            )
-            attention_matrices = (
-                torch.cat([cast(torch.Tensor, o[2]) for o in outs], dim=0)
-                if self.return_contacts
-                else None
-            )
+            representations: Any
+            if self.return_embeddings:
+                if isinstance(outs[0][1], dict):
+                    representations = {
+                        layer: torch.cat(
+                            [cast(Dict[Any, torch.Tensor], o[1])[layer] for o in outs],
+                            dim=0,
+                        )
+                        for layer in cast(Dict[Any, Any], outs[0][1])
+                    }
+                else:
+                    representations = torch.cat(
+                        [cast(torch.Tensor, o[1]) for o in outs], dim=0
+                    )
+            else:
+                representations = None
+
+            attention_matrices: Any
+            if self.return_contacts:
+                if isinstance(outs[0][2], dict):
+                    attention_matrices = {
+                        k: torch.cat(
+                            [cast(Dict[Any, torch.Tensor], o[2])[k] for o in outs],
+                            dim=0,
+                        )
+                        for k in cast(Dict[Any, Any], outs[0][2])
+                    }
+                elif isinstance(outs[0][2], torch.Tensor):
+                    first = outs[0][2]
+                    if first.ndim >= 2 and first.shape[1] == toks_chunks[0].size(0):
+                        # HuggingFace stack shape: (layers, batch, heads, seq, seq)
+                        attention_matrices = torch.cat(
+                            [cast(torch.Tensor, o[2]) for o in outs], dim=1
+                        )
+                    else:
+                        # ESMEmbedder permuted shape: (batch, layers, heads, seq, seq)
+                        attention_matrices = torch.cat(
+                            [cast(torch.Tensor, o[2]) for o in outs], dim=0
+                        )
+                else:
+                    attention_matrices = None
+            else:
+                attention_matrices = None
             return logits, representations, attention_matrices
 
     def _active_output_types(self) -> List[str]:
@@ -622,24 +678,44 @@ class BaseEmbedder:
     def _extract_logits(
         self,
         logits: Any,
+        batch_labels: List[str],
+        pooling_mask: torch.Tensor,
         offset: int,
     ) -> None:
         assert self.layers is not None
-        for layer in self.layers:
-            tensor = logits[layer - 1]
-            if self.streaming_output:
-                # output_file = self.logits["output_data"][layer]
-                # self.write_batch_to_disk(output_file, tensor, offset)
-
-                self.io_dispatcher.enqueue(
-                    output_type="logits",
-                    layer=layer,
-                    head=None,
-                    offset=offset,
-                    array=self._to_numpy(tensor),  # Ensure it's on CPU and NumPy
-                )
-            else:
-                self.logits["output_data"][layer].extend(tensor)
+        should_flatten = self.flatten and (
+            self.streaming_output or not self.chunks_mapping
+        )
+        if not self.discard_padding:
+            tensor = logits[: len(batch_labels)]
+            if should_flatten:
+                tensor = tensor.flatten(start_dim=1)
+            for layer in self.layers:
+                if self.streaming_output:
+                    self.io_dispatcher.enqueue(
+                        output_type="logits",
+                        layer=layer,
+                        head=None,
+                        offset=offset,
+                        array=np.ascontiguousarray(
+                            self._to_numpy(tensor)
+                        ),  # Ensure it's on CPU and NumPy
+                    )
+                else:
+                    self.logits["output_data"][layer].extend(tensor)
+        else:
+            for layer in self.layers:
+                if should_flatten:
+                    self.logits["output_data"][layer].extend(
+                        [
+                            logits[i][pooling_mask[i]].flatten()
+                            for i in range(len(batch_labels))
+                        ]
+                    )
+                else:
+                    self.logits["output_data"][layer].extend(
+                        [logits[i][pooling_mask[i]] for i in range(len(batch_labels))]
+                    )
 
     def _extract_mean_pooled(
         self,
@@ -682,12 +758,15 @@ class BaseEmbedder:
         offset: int,
     ) -> None:
         assert self.layers is not None
+        should_flatten = self.flatten and (
+            self.streaming_output or not self.chunks_mapping
+        )
         if not self.discard_padding:
             for layer in self.layers:
                 tensor = torch.stack(
                     [representations[layer][i] for i in range(len(batch_labels))]
                 )
-                if self.flatten:
+                if should_flatten:
                     tensor = tensor.flatten(start_dim=1)
                 if self.streaming_output:
                     # output_file = self.per_token["output_data"][layer]
@@ -705,7 +784,7 @@ class BaseEmbedder:
                     self.per_token["output_data"][layer].extend(tensor)
         else:
             for layer in self.layers:
-                if self.flatten:
+                if should_flatten:
                     self.per_token["output_data"][layer].extend(
                         [
                             representations[layer][i][pooling_mask[i]].flatten()
@@ -881,7 +960,10 @@ class BaseEmbedder:
                             )
                     else:
                         # Handle layer-based outputs (mean_pooled, per_token, substring_pooled, attention_layer, logits)
-                        flatten = self.flatten and output_type == "per_token"
+                        flatten = self.flatten and output_type in (
+                            "per_token",
+                            "logits",
+                        )
                         tensor = self._prepare_tensor(output_data[layer], flatten)
                         file_path = self._make_output_filepath(
                             output_type, output_dir, layer
@@ -1159,39 +1241,44 @@ class BaseEmbedder:
                                 payload_len = self.chunk_payload_lengths[cl]
 
                                 # Identify indices for extraction
-                                start_idx = 1
-                                if i > 0:
-                                    start_idx += self.split_overlap
+                                if self.discard_padding:
+                                    start_idx = 0
+                                    if i > 0:
+                                        start_idx += self.split_overlap
+                                    end_idx = payload_len
+                                    meat = full_tensor[start_idx:end_idx]
+                                else:
+                                    start_idx = 1
+                                    if i > 0:
+                                        start_idx += self.split_overlap
+                                    end_idx = 1 + payload_len
+                                    meat = full_tensor[start_idx:end_idx]
 
-                                end_idx = 1 + payload_len
-                                meat = full_tensor[start_idx:end_idx]
-
-                                if i == 0:
-                                    meat = torch.cat([full_tensor[0:1], meat], dim=0)
-
-                                if i == len(chunk_labels) - 1:
-                                    expected_unpadded_len = 1 + payload_len
-                                    # Safe bet: if there's no EOS, it's either padding or out of bounds.
-                                    # To be robust during reconstruction of standard models, we should append if `add_special_tokens` was True and the tokenizer adds EOS.
-                                    # The simplest heuristic: the original tokenizer encoded "" into >1 token or it has an EOS token
-                                    eos_count = (
-                                        len(
-                                            self.tokenizer.encode(
-                                                "", add_special_tokens=True
-                                            )
+                                    if i == 0:
+                                        meat = torch.cat(
+                                            [full_tensor[0:1], meat], dim=0
                                         )
-                                        - 1
-                                        if hasattr(self, "tokenizer")
-                                        and hasattr(self.tokenizer, "encode")
-                                        else 0
-                                    )
 
-                                    if eos_count > 0:
-                                        appended = full_tensor[
-                                            expected_unpadded_len : expected_unpadded_len
-                                            + 1
-                                        ]
-                                        meat = torch.cat([meat, appended], dim=0)
+                                    if i == len(chunk_labels) - 1:
+                                        expected_unpadded_len = 1 + payload_len
+                                        eos_count = (
+                                            len(
+                                                self.tokenizer.encode(
+                                                    "", add_special_tokens=True
+                                                )
+                                            )
+                                            - 1
+                                            if hasattr(self, "tokenizer")
+                                            and hasattr(self.tokenizer, "encode")
+                                            else 0
+                                        )
+
+                                        if eos_count > 0:
+                                            appended = full_tensor[
+                                                expected_unpadded_len : expected_unpadded_len
+                                                + 1
+                                            ]
+                                            meat = torch.cat([meat, appended], dim=0)
 
                                 parts.append(meat)
 
@@ -1214,7 +1301,10 @@ class BaseEmbedder:
             if output_type == "per_token" and not per_token_requested:
                 continue
             for layer in self.layers:
-                obj["output_data"][layer] = reconstructed_data[output_type][layer]
+                data = reconstructed_data[output_type][layer]
+                if self.flatten and output_type in ("per_token", "logits"):
+                    data = [t.flatten() for t in data]
+                obj["output_data"][layer] = data
 
         logger.info(
             f"Reconstruction complete. Final sequence count: {self.num_sequences}"

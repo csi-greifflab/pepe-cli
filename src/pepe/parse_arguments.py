@@ -103,7 +103,7 @@ def parse_arguments():
         ],
         default=["mean_pooled"],
         nargs="+",
-        help="Set the embedding return types. Choose one or more from: 'per_token', 'mean_pooled', 'substring_pooled', 'attention_head', 'attention_layer', 'attention_model' and 'logits' (experimental). Default is 'pooled'.",
+        help="Set the embedding return types. Choose one or more from: 'per_token', 'mean_pooled', 'substring_pooled', 'attention_head', 'attention_layer', 'attention_model' and 'logits'. Supported for ESM-2 and ESM-C (note: ESM-C outputs 64-dimensional logits with indices 4–28 supervised; unmasked single-pass logits are unsuitable for zero-shot variant effect prediction without masked marginal scoring). Default is 'pooled'.",
     )
     parser.add_argument(
         "--batch_size",

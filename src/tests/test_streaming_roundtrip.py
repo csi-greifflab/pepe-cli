@@ -149,6 +149,12 @@ def test_streaming_matches_in_memory(tmp_path):
         reference = in_memory_to_numpy(in_memory[output_type], output_type)
         streaming = load_streaming_output(str(tmp_path), output_type)
         _assert_allclose(reference, streaming, output_type)
+        if output_type == "logits":
+            assert reference.ndim == 3, f"Expected 3D logits, got {reference.ndim}"
+            assert reference.shape[-1] == 33, (
+                f"Expected ESM-2 vocab size 33, got {reference.shape[-1]}"
+            )
+            assert streaming.shape == reference.shape
 
 
 def test_get_substring_positions_missing_raises():

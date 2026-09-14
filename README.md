@@ -286,7 +286,7 @@ results = pepe.embed(
   - `attention_head` — raw attention weights for every head in the specified layers. Shape: `(num_sequences, max_length, max_length)` per head.
   - `attention_layer` — average attention across all heads within each specified layer. Shape: `(num_sequences, max_length, max_length)` per layer.
   - `attention_model` — average attention across all heads and specified layers. Shape: `(num_sequences, max_length, max_length)`.
-  - `logits` — raw language model output (experimental).
+  - `logits` — raw language model output. Shape: `(num_sequences, max_length, vocab_size)`. Supported on ESM-2 and ESM-C. Note: ESM-C outputs 64-dimensional logits (indices 4–28 are supervised amino acid tokens; remaining indices are padded). Because ESM-C was trained with 100% `[MASK]` replacement, single-pass unmasked logits degrade significantly and should not be used as zero-shot variant effect predictors without masked marginal scoring.
 
   Default `mean_pooled`.
 - **`--substring_path`** (str, optional): Path to a CSV with columns `sequence_id` and `substring`. Required for `substring_pooled`.
