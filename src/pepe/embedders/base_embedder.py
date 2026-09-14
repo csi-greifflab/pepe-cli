@@ -397,11 +397,15 @@ class BaseEmbedder:
                 if self.return_logits
                 else None
             )
+            representations: Any
             if self.return_embeddings:
                 if isinstance(outs[0][1], dict):
                     representations = {
-                        layer: torch.cat([o[1][layer] for o in outs], dim=0)
-                        for layer in outs[0][1]
+                        layer: torch.cat(
+                            [cast(Dict[Any, torch.Tensor], o[1])[layer] for o in outs],
+                            dim=0,
+                        )
+                        for layer in cast(Dict[Any, Any], outs[0][1])
                     }
                 else:
                     representations = torch.cat(
@@ -410,10 +414,15 @@ class BaseEmbedder:
             else:
                 representations = None
 
+            attention_matrices: Any
             if self.return_contacts:
                 if isinstance(outs[0][2], dict):
                     attention_matrices = {
-                        k: torch.cat([o[2][k] for o in outs], dim=0) for k in outs[0][2]
+                        k: torch.cat(
+                            [cast(Dict[Any, torch.Tensor], o[2])[k] for o in outs],
+                            dim=0,
+                        )
+                        for k in cast(Dict[Any, Any], outs[0][2])
                     }
                 elif isinstance(outs[0][2], torch.Tensor):
                     first = outs[0][2]
@@ -674,9 +683,12 @@ class BaseEmbedder:
         offset: int,
     ) -> None:
         assert self.layers is not None
+        should_flatten = self.flatten and (
+            self.streaming_output or not self.chunks_mapping
+        )
         if not self.discard_padding:
             tensor = logits[: len(batch_labels)]
-            if self.flatten:
+            if should_flatten:
                 tensor = tensor.flatten(start_dim=1)
             for layer in self.layers:
                 if self.streaming_output:
@@ -693,7 +705,7 @@ class BaseEmbedder:
                     self.logits["output_data"][layer].extend(tensor)
         else:
             for layer in self.layers:
-                if self.flatten:
+                if should_flatten:
                     self.logits["output_data"][layer].extend(
                         [
                             logits[i][pooling_mask[i]].flatten()
@@ -746,12 +758,15 @@ class BaseEmbedder:
         offset: int,
     ) -> None:
         assert self.layers is not None
+        should_flatten = self.flatten and (
+            self.streaming_output or not self.chunks_mapping
+        )
         if not self.discard_padding:
             for layer in self.layers:
                 tensor = torch.stack(
                     [representations[layer][i] for i in range(len(batch_labels))]
                 )
-                if self.flatten:
+                if should_flatten:
                     tensor = tensor.flatten(start_dim=1)
                 if self.streaming_output:
                     # output_file = self.per_token["output_data"][layer]
@@ -769,7 +784,7 @@ class BaseEmbedder:
                     self.per_token["output_data"][layer].extend(tensor)
         else:
             for layer in self.layers:
-                if self.flatten:
+                if should_flatten:
                     self.per_token["output_data"][layer].extend(
                         [
                             representations[layer][i][pooling_mask[i]].flatten()
@@ -1226,39 +1241,44 @@ class BaseEmbedder:
                                 payload_len = self.chunk_payload_lengths[cl]
 
                                 # Identify indices for extraction
-                                start_idx = 1
-                                if i > 0:
-                                    start_idx += self.split_overlap
+                                if self.discard_padding:
+                                    start_idx = 0
+                                    if i > 0:
+                                        start_idx += self.split_overlap
+                                    end_idx = payload_len
+                                    meat = full_tensor[start_idx:end_idx]
+                                else:
+                                    start_idx = 1
+                                    if i > 0:
+                                        start_idx += self.split_overlap
+                                    end_idx = 1 + payload_len
+                                    meat = full_tensor[start_idx:end_idx]
 
-                                end_idx = 1 + payload_len
-                                meat = full_tensor[start_idx:end_idx]
-
-                                if i == 0:
-                                    meat = torch.cat([full_tensor[0:1], meat], dim=0)
-
-                                if i == len(chunk_labels) - 1:
-                                    expected_unpadded_len = 1 + payload_len
-                                    # Safe bet: if there's no EOS, it's either padding or out of bounds.
-                                    # To be robust during reconstruction of standard models, we should append if `add_special_tokens` was True and the tokenizer adds EOS.
-                                    # The simplest heuristic: the original tokenizer encoded "" into >1 token or it has an EOS token
-                                    eos_count = (
-                                        len(
-                                            self.tokenizer.encode(
-                                                "", add_special_tokens=True
-                                            )
+                                    if i == 0:
+                                        meat = torch.cat(
+                                            [full_tensor[0:1], meat], dim=0
                                         )
-                                        - 1
-                                        if hasattr(self, "tokenizer")
-                                        and hasattr(self.tokenizer, "encode")
-                                        else 0
-                                    )
 
-                                    if eos_count > 0:
-                                        appended = full_tensor[
-                                            expected_unpadded_len : expected_unpadded_len
-                                            + 1
-                                        ]
-                                        meat = torch.cat([meat, appended], dim=0)
+                                    if i == len(chunk_labels) - 1:
+                                        expected_unpadded_len = 1 + payload_len
+                                        eos_count = (
+                                            len(
+                                                self.tokenizer.encode(
+                                                    "", add_special_tokens=True
+                                                )
+                                            )
+                                            - 1
+                                            if hasattr(self, "tokenizer")
+                                            and hasattr(self.tokenizer, "encode")
+                                            else 0
+                                        )
+
+                                        if eos_count > 0:
+                                            appended = full_tensor[
+                                                expected_unpadded_len : expected_unpadded_len
+                                                + 1
+                                            ]
+                                            meat = torch.cat([meat, appended], dim=0)
 
                                 parts.append(meat)
 
@@ -1281,7 +1301,10 @@ class BaseEmbedder:
             if output_type == "per_token" and not per_token_requested:
                 continue
             for layer in self.layers:
-                obj["output_data"][layer] = reconstructed_data[output_type][layer]
+                data = reconstructed_data[output_type][layer]
+                if self.flatten and output_type in ("per_token", "logits"):
+                    data = [t.flatten() for t in data]
+                obj["output_data"][layer] = data
 
         logger.info(
             f"Reconstruction complete. Final sequence count: {self.num_sequences}"

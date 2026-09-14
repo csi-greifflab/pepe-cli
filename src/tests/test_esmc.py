@@ -3,8 +3,11 @@ import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
+import torch
+
 sys.path.insert(0, os.path.abspath("src"))
 
+from pepe.embedders.huggingface_embedder import ESMCEmbedder
 from pepe.model_selecter import select_model
 
 
@@ -161,6 +164,56 @@ class TestESMCModelSelection(unittest.TestCase):
         self.assertIn(30, reps)
         self.assertEqual(reps[30].shape, (4, 10, 960))
         self.assertIsNone(attn)
+
+    def test_reconstruct_chunks_discard_padding_and_flatten_logits(self):
+        emb = ESMCEmbedder.__new__(ESMCEmbedder)
+        emb.chunks_mapping = {"seq": ["seq_chunk_0", "seq_chunk_1"]}
+        emb.streaming_output = False
+        emb.layers = [1]
+        emb.sequence_labels = ["seq_chunk_0", "seq_chunk_1"]
+        emb.output_types = ["logits", "per_token"]
+        emb.split_overlap = 2
+        emb.chunk_payload_lengths = {"seq_chunk_0": 5, "seq_chunk_1": 5}
+        emb.discard_padding = True
+        emb.flatten = True
+
+        vocab_size = 64
+        hidden_size = 16
+        c0_logits = torch.randn(5, vocab_size)
+        c1_logits = torch.randn(5, vocab_size)
+        c0_reps = torch.randn(5, hidden_size)
+        c1_reps = torch.randn(5, hidden_size)
+
+        emb.logits = {"output_data": {1: [c0_logits, c1_logits]}}
+        emb.per_token = {"output_data": {1: [c0_reps, c1_reps]}}
+
+        emb._reconstruct_chunks()
+
+        self.assertEqual(emb.sequence_labels, ["seq"])
+        reconstructed_logits = emb.logits["output_data"][1][0]
+        reconstructed_reps = emb.per_token["output_data"][1][0]
+        self.assertEqual(reconstructed_logits.shape, (8 * vocab_size,))
+        self.assertEqual(reconstructed_reps.shape, (8 * hidden_size,))
+
+        expected_logits = torch.cat([c0_logits, c1_logits[2:]], dim=0).flatten()
+        self.assertTrue(torch.equal(reconstructed_logits, expected_logits))
+        expected_reps = torch.cat([c0_reps, c1_reps[2:]], dim=0).flatten()
+        self.assertTrue(torch.equal(reconstructed_reps, expected_reps))
+
+    def test_custom_model_wrapper_vocab_size_consistency(self):
+        from pepe.embedders.custom_embedder import CustomModelWrapper
+
+        # Default fallback is 21
+        wrapper = CustomModelWrapper({}, {})
+        self.assertEqual(wrapper.vocab_size, 21)
+        out = wrapper(torch.zeros(2, 5, dtype=torch.long))
+        self.assertEqual(out.logits.shape, (2, 5, 21))
+
+        # Configured vocab_size overrides default
+        wrapper_custom = CustomModelWrapper({}, {"vocab_size": 35})
+        self.assertEqual(wrapper_custom.vocab_size, 35)
+        out_custom = wrapper_custom(torch.zeros(2, 5, dtype=torch.long))
+        self.assertEqual(out_custom.logits.shape, (2, 5, 35))
 
 
 @unittest.skipUnless(
