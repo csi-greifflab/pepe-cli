@@ -178,6 +178,7 @@ class CustomEmbedder(BaseEmbedder):
 
         # Initialize tokenizer
         tokenizer = self._initialize_tokenizer(tokenizer_path, config)
+        self.vocab_size = config.get("vocab_size", getattr(tokenizer, "vocab_size", 25))
 
         return model, tokenizer, num_heads, num_layers, embedding_size
 

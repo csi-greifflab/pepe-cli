@@ -212,7 +212,7 @@ def report_model(model_name, trust_remote_code=False):
             "subword (per_token/substring_pooled unreliable; prefer mean_pooled)"
         )
 
-    logits_available = embedder_name == "ESM2Embedder"
+    logits_available = embedder_name in ("ESM2Embedder", "ESMCEmbedder")
 
     if embedder_name in ("ESMEmbedder",):
         attention = "yes (fair-esm contacts)"

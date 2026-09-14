@@ -435,6 +435,7 @@ class ESM2Embedder(HuggingfaceEmbedder):
         num_heads = config.num_attention_heads
         num_layers = config.num_hidden_layers
         embedding_size = config.hidden_size
+        self.vocab_size = getattr(config, "vocab_size", getattr(tokenizer, "vocab_size", 33))
         return model, tokenizer, num_heads, num_layers, embedding_size
 
     def _compute_outputs(
@@ -458,7 +459,6 @@ class ESM2Embedder(HuggingfaceEmbedder):
                 outputs.logits.to(
                     dtype=self._precision_to_dtype(self.precision, "torch")
                 )
-                .permute(2, 0, 1)
                 .cpu()
             )
             torch.cuda.empty_cache()
@@ -607,7 +607,58 @@ class ESMCEmbedder(HuggingfaceEmbedder):
             config, "num_hidden_layers", "n_layers", "num_layers"
         )
         embedding_size = _get_config_attr(config, "hidden_size", "d_model", "embed_dim")
+        self.vocab_size = _get_config_attr(config, "vocab_size", default=64)
         return model, tokenizer, num_heads, num_layers, embedding_size
+
+    def _compute_outputs(
+        self,
+        model: Any,
+        toks: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
+        return_embeddings: bool,
+        return_contacts: bool,
+        return_logits: bool = False,
+    ) -> Tuple[Optional[Any], Optional[Any], Optional[Any]]:
+        assert self.layers is not None
+        outputs = model(
+            input_ids=toks,
+            attention_mask=attention_mask,
+            output_hidden_states=return_embeddings,
+            output_attentions=return_contacts,
+        )
+        if return_logits and hasattr(outputs, "logits"):
+            logits = (
+                outputs.logits.to(
+                    dtype=self._precision_to_dtype(self.precision, "torch")
+                )
+                .cpu()
+            )
+            torch.cuda.empty_cache()
+        else:
+            logits = None
+
+        if return_contacts:
+            attention_matrices = (
+                torch.stack(outputs.attentions)
+                .to(self._precision_to_dtype(self.precision, "torch"))
+                .cpu()
+            )
+            torch.cuda.empty_cache()
+        else:
+            attention_matrices = None
+
+        if return_embeddings:
+            representations = {
+                layer: outputs.hidden_states[layer]
+                .to(self._precision_to_dtype(self.precision, "torch"))
+                .cpu()
+                for layer in self.layers
+            }
+            torch.cuda.empty_cache()
+        else:
+            representations = None
+
+        return logits, representations, attention_matrices
 
 
 class GenericHuggingFaceEmbedder(HuggingfaceEmbedder):

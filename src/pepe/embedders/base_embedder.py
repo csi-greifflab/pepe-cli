@@ -144,17 +144,40 @@ class BaseEmbedder:
                 f"Unsupported precision: {precision}. Supported values are {half_precision} or {full_precision}."
             )
 
+    def _get_vocab_size(self) -> int:
+        """Retrieve the vocabulary size across supported backends."""
+        if hasattr(self, "vocab_size") and self.vocab_size:
+            return self.vocab_size
+        if hasattr(self, "tokenizer") and hasattr(self.tokenizer, "vocab_size"):
+            return self.tokenizer.vocab_size
+        if hasattr(self, "tokenizer") and hasattr(self.tokenizer, "get_vocab"):
+            return len(self.tokenizer.get_vocab())
+        if hasattr(self, "config") and hasattr(self.config, "vocab_size"):
+            return self.config.vocab_size
+        if hasattr(self, "alphabet") and hasattr(self.alphabet, "all_toks"):
+            return len(self.alphabet.all_toks)
+        return 0
+
     def _set_output_objects(self) -> None:
         """Initialize output objects."""
         assert self.layers is not None
         self.sequence_labels = []
+        self.vocab_size = self._get_vocab_size()
         self.logits = {
             "output_data": {layer: [] for layer in self.layers},
             "method": self._extract_logits,
             "output_dir": os.path.join(self.output_path, "logits"),
             "shape": (
-                self.num_sequences,
-                self.max_input_length,
+                (
+                    self.num_sequences,
+                    self.max_input_length,
+                    self.vocab_size,
+                )
+                if not self.flatten
+                else (
+                    self.num_sequences,
+                    self.max_input_length * self.vocab_size,
+                )
             ),
         }
         self.mean_pooled = {
@@ -622,24 +645,44 @@ class BaseEmbedder:
     def _extract_logits(
         self,
         logits: Any,
+        batch_labels: List[str],
+        pooling_mask: torch.Tensor,
         offset: int,
     ) -> None:
         assert self.layers is not None
-        for layer in self.layers:
-            tensor = logits[layer - 1]
-            if self.streaming_output:
-                # output_file = self.logits["output_data"][layer]
-                # self.write_batch_to_disk(output_file, tensor, offset)
-
-                self.io_dispatcher.enqueue(
-                    output_type="logits",
-                    layer=layer,
-                    head=None,
-                    offset=offset,
-                    array=self._to_numpy(tensor),  # Ensure it's on CPU and NumPy
-                )
-            else:
-                self.logits["output_data"][layer].extend(tensor)
+        if not self.discard_padding:
+            tensor = logits[: len(batch_labels)]
+            if self.flatten:
+                tensor = tensor.flatten(start_dim=1)
+            for layer in self.layers:
+                if self.streaming_output:
+                    self.io_dispatcher.enqueue(
+                        output_type="logits",
+                        layer=layer,
+                        head=None,
+                        offset=offset,
+                        array=np.ascontiguousarray(
+                            self._to_numpy(tensor)
+                        ),  # Ensure it's on CPU and NumPy
+                    )
+                else:
+                    self.logits["output_data"][layer].extend(tensor)
+        else:
+            for layer in self.layers:
+                if self.flatten:
+                    self.logits["output_data"][layer].extend(
+                        [
+                            logits[i][pooling_mask[i]].flatten()
+                            for i in range(len(batch_labels))
+                        ]
+                    )
+                else:
+                    self.logits["output_data"][layer].extend(
+                        [
+                            logits[i][pooling_mask[i]]
+                            for i in range(len(batch_labels))
+                        ]
+                    )
 
     def _extract_mean_pooled(
         self,
@@ -881,7 +924,7 @@ class BaseEmbedder:
                             )
                     else:
                         # Handle layer-based outputs (mean_pooled, per_token, substring_pooled, attention_layer, logits)
-                        flatten = self.flatten and output_type == "per_token"
+                        flatten = self.flatten and output_type in ("per_token", "logits")
                         tensor = self._prepare_tensor(output_data[layer], flatten)
                         file_path = self._make_output_filepath(
                             output_type, output_dir, layer
