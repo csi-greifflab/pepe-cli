@@ -928,15 +928,19 @@ class BaseEmbedder:
             # Handle variable-length sequences by returning an object array of numpy arrays
             return np.array([t.numpy() for t in data_list], dtype=object)
 
-        try:
-            tensor = torch.stack(data_list, dim=0)
-            if flatten:
-                tensor = tensor.flatten(start_dim=1)
-            return tensor.numpy()
-        except RuntimeError:
+        if not data_list:
+            return np.array([])
+
+        first_shape = data_list[0].shape
+        if any(t.shape != first_shape for t in data_list):
             if flatten:
                 return np.array([t.numpy().flatten() for t in data_list], dtype=object)
             return np.array([t.numpy() for t in data_list], dtype=object)
+
+        tensor = torch.stack(data_list, dim=0)
+        if flatten:
+            tensor = tensor.flatten(start_dim=1)
+        return tensor.numpy()
 
     def _to_numpy(self, t: torch.Tensor) -> np.ndarray:
         return t.detach().cpu().contiguous().numpy()

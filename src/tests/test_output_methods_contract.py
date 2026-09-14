@@ -23,6 +23,7 @@ import unittest
 
 import numpy as np
 import pytest
+import torch
 
 sys.path.insert(0, os.path.abspath("src"))
 
@@ -131,6 +132,14 @@ class TestOutputMethodsContract(unittest.TestCase):
             attn_model_arr = np.stack([t.numpy() for t in res_mem["attention_model"]])
             self.assertEqual(attn_model_arr.shape, expected_shapes["attention_model"])
 
+            self.assertIn(LAYER, res_mem["attention_head"])
+            for head_idx in range(NUM_HEADS):
+                self.assertIn(head_idx, res_mem["attention_head"][LAYER])
+                head_arr = np.stack(
+                    [t.numpy() for t in res_mem["attention_head"][LAYER][head_idx]]
+                )
+                self.assertEqual(head_arr.shape, expected_shapes["attention_head"])
+
     def test_shape_and_preallocation_contract_flattened(self):
         """Verify preallocated shape matches written array shape for all outputs when flatten=True."""
         output_types = [
@@ -197,7 +206,11 @@ class TestOutputMethodsContract(unittest.TestCase):
                         f"Flattened streaming output for {out_type} is all zeros",
                     )
 
-            # In-memory flattened checks
+            # In-memory flattened checks for all output types
+            self.assertEqual(
+                np.stack(res_mem["mean_pooled"][LAYER]).shape,
+                expected_flattened_shapes["mean_pooled"],
+            )
             self.assertEqual(
                 np.stack([t.numpy() for t in res_mem["logits"][LAYER]]).shape,
                 expected_flattened_shapes["logits"],
@@ -206,6 +219,23 @@ class TestOutputMethodsContract(unittest.TestCase):
                 np.stack([t.numpy() for t in res_mem["per_token"][LAYER]]).shape,
                 expected_flattened_shapes["per_token"],
             )
+            self.assertEqual(
+                np.stack([t.numpy() for t in res_mem["attention_layer"][LAYER]]).shape,
+                expected_flattened_shapes["attention_layer"],
+            )
+            self.assertEqual(
+                np.stack([t.numpy() for t in res_mem["attention_model"]]).shape,
+                expected_flattened_shapes["attention_model"],
+            )
+            self.assertIn(LAYER, res_mem["attention_head"])
+            for head_idx in range(NUM_HEADS):
+                self.assertIn(head_idx, res_mem["attention_head"][LAYER])
+                flat_head_arr = np.stack(
+                    [t.numpy() for t in res_mem["attention_head"][LAYER][head_idx]]
+                )
+                self.assertEqual(
+                    flat_head_arr.shape, expected_flattened_shapes["attention_head"]
+                )
 
     def test_multi_layer_indexing_integrity(self):
         """Verify that extracting multiple layers preserves separate layer outputs without dimension corruption."""
@@ -356,6 +386,22 @@ class TestOutputMethodsContract(unittest.TestCase):
         self.assertTrue(bool((res_no_discard["logits"][LAYER][0] != 0).any()))
         self.assertTrue(bool((res_no_discard["per_token"][LAYER][0] != 0).any()))
 
+        # Assert reconstructed mean values match per-token mean
+        self.assertTrue(
+            torch.allclose(
+                res_discard["mean_pooled"][LAYER][0],
+                res_discard["per_token"][LAYER][0].mean(0),
+                atol=1e-5,
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                res_no_discard["mean_pooled"][LAYER][0],
+                res_no_discard["per_token"][LAYER][0].mean(0),
+                atol=1e-5,
+            )
+        )
+
     def test_substring_pooled_contract(self):
         """Verify substring_pooled outputs correct embedding dimensions per sequence."""
         repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -403,16 +449,24 @@ class TestOutputMethodsContract(unittest.TestCase):
         embedder.tokenizer = DummyVocabTokenizer()
         self.assertEqual(embedder._get_vocab_size(), 64)
 
-        # 4. Has alphabet with all_toks
+        # 4. Has config with vocab_size
         delattr(embedder, "tokenizer")
 
+        class DummyConfig:
+            vocab_size = 50
+
+        embedder.config = DummyConfig()
+        self.assertEqual(embedder._get_vocab_size(), 50)
+        delattr(embedder, "config")
+
+        # 5. Has alphabet with all_toks
         class DummyAlphabet:
             all_toks = ["<pad>", "A", "C", "D"]
 
         embedder.alphabet = DummyAlphabet()
         self.assertEqual(embedder._get_vocab_size(), 4)
 
-        # 5. Fallback
+        # 6. Fallback
         delattr(embedder, "alphabet")
         self.assertEqual(embedder._get_vocab_size(), 0)
 
